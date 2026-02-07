@@ -419,16 +419,19 @@ export default function LivePage() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {Object.entries(stream.candle.indicators).map(([key, value]) => (
-                <div key={key} className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground font-mono truncate">
-                    {key}
-                  </p>
-                  <p className="text-lg font-semibold font-mono mt-1">
-                    {typeof value === "number" ? value.toFixed(4) : String(value)}
-                  </p>
-                </div>
-              ))}
+              {Object.entries(stream.candle.indicators).map(([key, value]) => {
+                const display = typeof value === "number" ? value.toFixed(4) : String(value);
+                return (
+                  <div key={key} className="rounded-lg border p-3 min-w-0">
+                    <p className="text-xs text-muted-foreground font-mono truncate" title={key}>
+                      {key}
+                    </p>
+                    <p className="text-lg font-semibold font-mono mt-1 truncate" title={display}>
+                      {display}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
@@ -610,14 +613,17 @@ export default function LivePage() {
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase text-muted-foreground">Live Indicators</p>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    {Object.entries(algo.indicators).map(([key, val]) => (
-                      <div key={key} className="rounded-lg border p-2">
-                        <p className="text-[10px] text-muted-foreground font-mono truncate">{key}</p>
-                        <p className="text-sm font-semibold font-mono">
-                          {typeof val === "number" ? val.toFixed(4) : val == null ? "---" : String(val)}
-                        </p>
-                      </div>
-                    ))}
+                    {Object.entries(algo.indicators).map(([key, val]) => {
+                      const display = typeof val === "number" ? val.toFixed(4) : val == null ? "---" : String(val);
+                      return (
+                        <div key={key} className="rounded-lg border p-2 min-w-0">
+                          <p className="text-[10px] text-muted-foreground font-mono truncate" title={key}>{key}</p>
+                          <p className="text-sm font-semibold font-mono truncate" title={display}>
+                            {display}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
