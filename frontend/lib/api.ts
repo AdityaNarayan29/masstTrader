@@ -105,8 +105,46 @@ export const api = {
     current: () => request("/api/strategy/current"),
   },
 
+  strategies: {
+    list: () =>
+      request<Array<{
+        id: string; name: string; symbol: string;
+        rule_count: number; created_at: string; updated_at: string;
+      }>>("/api/strategies"),
+    get: (id: string) =>
+      request<{
+        id: string; name: string; symbol: string;
+        rules: Array<Record<string, unknown>>;
+        raw_description: string; ai_explanation: string;
+        created_at: string; updated_at: string;
+      }>(`/api/strategies/${id}`),
+    save: () =>
+      request<{
+        id: string; name: string; symbol: string;
+        rules: Array<Record<string, unknown>>;
+        raw_description: string; ai_explanation: string;
+        created_at: string; updated_at: string;
+      }>("/api/strategies", { method: "POST" }),
+    update: (id: string) =>
+      request<{
+        id: string; name: string; symbol: string;
+        rules: Array<Record<string, unknown>>;
+        raw_description: string; ai_explanation: string;
+        created_at: string; updated_at: string;
+      }>(`/api/strategies/${id}`, { method: "PUT" }),
+    delete: (id: string) =>
+      request<{ success: boolean }>(`/api/strategies/${id}`, { method: "DELETE" }),
+    load: (id: string) =>
+      request<{
+        id: string; name: string; symbol: string;
+        rules: Array<Record<string, unknown>>;
+        raw_description: string; ai_explanation: string;
+        created_at: string; updated_at: string;
+      }>(`/api/strategies/${id}/load`, { method: "POST" }),
+  },
+
   backtest: {
-    run: (initialBalance: number, riskPercent: number) =>
+    run: (initialBalance: number, riskPercent: number, strategyId?: string) =>
       request<{
         trades: Array<{
           entry_price: number; exit_price: number; entry_time: string;
@@ -121,10 +159,25 @@ export const api = {
         equity_curve: number[];
       }>("/api/backtest/run", {
         method: "POST",
-        body: JSON.stringify({ initial_balance: initialBalance, risk_percent: riskPercent }),
+        body: JSON.stringify({
+          initial_balance: initialBalance,
+          risk_percent: riskPercent,
+          ...(strategyId ? { strategy_id: strategyId } : {}),
+        }),
       }),
     explain: () =>
       request<{ explanation: string }>("/api/backtest/explain", { method: "POST" }),
+  },
+
+  backtests: {
+    list: (strategyId?: string) =>
+      request<Array<{
+        id: string; strategy_id: string; strategy_name: string; symbol: string;
+        initial_balance: number; risk_percent: number;
+        stats: Record<string, number>; created_at: string;
+      }>>(`/api/backtests${strategyId ? `?strategy_id=${strategyId}` : ""}`),
+    get: (id: string) =>
+      request<Record<string, unknown>>(`/api/backtests/${id}`),
   },
 
   analyze: {

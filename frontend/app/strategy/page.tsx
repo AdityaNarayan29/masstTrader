@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
+import { Loader2, Save, Trash2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -35,11 +36,23 @@ interface Rule {
 }
 
 interface Strategy {
+  id?: string;
   name: string;
   rules: Rule[];
   ai_explanation: string;
   symbol: string;
   raw_description: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface StrategySummary {
+  id: string;
+  name: string;
+  symbol: string;
+  rule_count: number;
+  created_at: string;
+  updated_at: string;
 }
 
 const AVAILABLE_INDICATORS = [
@@ -62,6 +75,19 @@ export default function StrategyPage() {
   const [error, setError] = useState("");
   const [showJson, setShowJson] = useState(false);
 
+  // Persistence state
+  const [savedStrategies, setSavedStrategies] = useState<StrategySummary[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.strategies.list().then(setSavedStrategies).catch(() => {});
+  }, []);
+
+  const refreshList = () => {
+    api.strategies.list().then(setSavedStrategies).catch(() => {});
+  };
+
   const handleParse = async () => {
     if (!description.trim()) return;
     setLoading(true);
@@ -69,11 +95,66 @@ export default function StrategyPage() {
     try {
       const result = await api.strategy.parse(description, symbol);
       setStrategy(result as Strategy);
+      // If we were editing a saved strategy, keep the editingId so "Update" shows
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to parse strategy");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSave = async () => {
+    if (!strategy) return;
+    setSaving(true);
+    setError("");
+    try {
+      if (editingId) {
+        await api.strategies.update(editingId);
+      } else {
+        const saved = await api.strategies.save();
+        setEditingId(saved.id);
+      }
+      refreshList();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to save strategy");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLoad = async (id: string) => {
+    setError("");
+    try {
+      const s = await api.strategies.load(id);
+      const loaded = s as unknown as Strategy;
+      setStrategy(loaded);
+      setDescription(loaded.raw_description || "");
+      setSymbol(loaded.symbol || "EURUSD");
+      setEditingId(loaded.id || id);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load strategy");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setError("");
+    try {
+      await api.strategies.delete(id);
+      if (editingId === id) {
+        setEditingId(null);
+        setStrategy(null);
+      }
+      refreshList();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to delete strategy");
+    }
+  };
+
+  const handleNew = () => {
+    setEditingId(null);
+    setStrategy(null);
+    setDescription("");
+    setSymbol("EURUSD");
   };
 
   return (
@@ -88,6 +169,63 @@ export default function StrategyPage() {
         <div className="bg-destructive/10 border border-destructive/30 text-destructive px-4 py-3 rounded-lg mb-4 text-sm">
           {error}
         </div>
+      )}
+
+      {/* Saved Strategies */}
+      {savedStrategies.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Saved Strategies</CardTitle>
+              {editingId && (
+                <Button variant="outline" size="sm" onClick={handleNew}>
+                  + New Strategy
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {savedStrategies.map((s) => (
+                <div
+                  key={s.id}
+                  className={`flex items-center justify-between rounded-lg border px-4 py-3 ${
+                    editingId === s.id
+                      ? "border-primary bg-primary/5"
+                      : "border-border"
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{s.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {s.symbol} &middot; {s.rule_count} rule{s.rule_count !== 1 ? "s" : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleLoad(s.id)}
+                    >
+                      <Download className="h-3.5 w-3.5 mr-1" />
+                      Load
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => handleDelete(s.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Input Section */}
@@ -167,7 +305,17 @@ export default function StrategyPage() {
                   <CardTitle className="text-xl">{strategy.name}</CardTitle>
                   <CardDescription>{strategy.ai_explanation}</CardDescription>
                 </div>
-                <Badge variant="secondary">{strategy.symbol}</Badge>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Badge variant="secondary">{strategy.symbol}</Badge>
+                  <Button size="sm" onClick={handleSave} disabled={saving}>
+                    {saving ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                    ) : (
+                      <Save className="h-3.5 w-3.5 mr-1" />
+                    )}
+                    {editingId ? "Update" : "Save"}
+                  </Button>
+                </div>
               </div>
             </CardHeader>
           </Card>

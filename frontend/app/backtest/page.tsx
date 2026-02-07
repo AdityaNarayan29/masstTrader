@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import {
@@ -33,6 +33,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   ChartContainer,
   ChartTooltip,
@@ -67,9 +74,15 @@ interface Trade {
 }
 
 export default function BacktestPage() {
+  const [strategies, setStrategies] = useState<Array<{ id: string; name: string; symbol: string }>>([]);
+  const [selectedStrategyId, setSelectedStrategyId] = useState("__current__");
   const [balance, setBalance] = useState(10000);
   const [risk, setRisk] = useState(1);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    api.strategies.list().then(setStrategies).catch(() => {});
+  }, []);
   const [stats, setStats] = useState<BacktestStats | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [equityCurve, setEquityCurve] = useState<number[]>([]);
@@ -82,7 +95,8 @@ export default function BacktestPage() {
     setError("");
     setExplanation("");
     try {
-      const result = await api.backtest.run(balance, risk);
+      const stratId = selectedStrategyId !== "__current__" ? selectedStrategyId : undefined;
+      const result = await api.backtest.run(balance, risk, stratId);
       setStats(result.stats);
       setTrades(result.trades);
       setEquityCurve(result.equity_curve);
@@ -204,6 +218,24 @@ export default function BacktestPage() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-6 items-end">
+            {strategies.length > 0 && (
+              <div className="space-y-2">
+                <Label>Strategy</Label>
+                <Select value={selectedStrategyId} onValueChange={setSelectedStrategyId}>
+                  <SelectTrigger className="w-56">
+                    <SelectValue placeholder="Use current strategy" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__current__">Current (in-memory)</SelectItem>
+                    {strategies.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name} ({s.symbol})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="balance">Initial Balance ($)</Label>
               <Input

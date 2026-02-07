@@ -25,7 +25,15 @@ def sanitize_for_json(obj):
         return None
     return obj
 
+from backend.database import (
+    init_db, save_strategy, list_strategies, get_strategy,
+    update_strategy, delete_strategy, save_backtest, list_backtests, get_backtest,
+)
+
 app = FastAPI(title="MasstTrader API", version="1.0.0")
+
+# Initialize SQLite database
+init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,6 +73,7 @@ class StrategyRequest(BaseModel):
 class BacktestRequest(BaseModel):
     initial_balance: float = 10000.0
     risk_percent: float = 1.0
+    strategy_id: Optional[str] = None
 
 
 class TradeAnalyzeRequest(BaseModel):
@@ -310,12 +319,84 @@ def get_current_strategy():
 
 
 # ──────────────────────────────────────
+# STRATEGY PERSISTENCE (CRUD)
+# ──────────────────────────────────────
+
+@app.post("/api/strategies")
+def save_strategy_endpoint():
+    if not current_strategy:
+        raise HTTPException(status_code=400, detail="No strategy loaded. Parse one first.")
+    saved = save_strategy(current_strategy)
+    return saved
+
+
+@app.get("/api/strategies")
+def list_strategies_endpoint():
+    strategies = list_strategies()
+    return [
+        {
+            "id": s["id"],
+            "name": s["name"],
+            "symbol": s["symbol"],
+            "rule_count": len(s.get("rules", [])),
+            "created_at": s["created_at"],
+            "updated_at": s["updated_at"],
+        }
+        for s in strategies
+    ]
+
+
+@app.get("/api/strategies/{strategy_id}")
+def get_strategy_endpoint(strategy_id: str):
+    s = get_strategy(strategy_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    return s
+
+
+@app.put("/api/strategies/{strategy_id}")
+def update_strategy_endpoint(strategy_id: str):
+    if not current_strategy:
+        raise HTTPException(status_code=400, detail="No strategy loaded. Parse an updated version first.")
+    updated = update_strategy(strategy_id, current_strategy)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    return updated
+
+
+@app.delete("/api/strategies/{strategy_id}")
+def delete_strategy_endpoint(strategy_id: str):
+    deleted = delete_strategy(strategy_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    return {"success": True}
+
+
+@app.post("/api/strategies/{strategy_id}/load")
+def load_strategy_endpoint(strategy_id: str):
+    global current_strategy
+    s = get_strategy(strategy_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    current_strategy = s
+    return s
+
+
+# ──────────────────────────────────────
 # BACKTEST ENDPOINTS
 # ──────────────────────────────────────
 
 @app.post("/api/backtest/run")
 def run_backtest_endpoint(req: BacktestRequest):
-    global backtest_results
+    global backtest_results, current_strategy
+
+    # If strategy_id provided, load from DB
+    if req.strategy_id:
+        saved = get_strategy(req.strategy_id)
+        if not saved:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+        current_strategy = saved
+
     if not current_strategy:
         raise HTTPException(status_code=400, detail="No strategy loaded. Parse one first.")
     if historical_data is None:
@@ -323,7 +404,6 @@ def run_backtest_endpoint(req: BacktestRequest):
 
     try:
         from backend.core.backtester import run_backtest
-        import pandas as pd
 
         df = historical_data.copy()
         if "datetime" not in df.columns:
@@ -338,7 +418,20 @@ def run_backtest_endpoint(req: BacktestRequest):
             initial_balance=req.initial_balance,
             risk_per_trade=req.risk_percent,
         )
+        result = sanitize_for_json(result)
         backtest_results = result
+
+        # Auto-save to DB if strategy has an id
+        if current_strategy.get("id"):
+            save_backtest(
+                strategy_id=current_strategy["id"],
+                strategy_name=current_strategy.get("name", ""),
+                symbol=current_strategy.get("symbol", ""),
+                initial_balance=req.initial_balance,
+                risk_percent=req.risk_percent,
+                result=result,
+            )
+
         return result
     except HTTPException:
         raise
@@ -360,6 +453,23 @@ def explain_backtest_endpoint():
         return {"explanation": explanation}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ──────────────────────────────────────
+# BACKTEST HISTORY ENDPOINTS
+# ──────────────────────────────────────
+
+@app.get("/api/backtests")
+def list_backtests_endpoint(strategy_id: Optional[str] = None):
+    return list_backtests(strategy_id)
+
+
+@app.get("/api/backtests/{backtest_id}")
+def get_backtest_endpoint(backtest_id: str):
+    bt = get_backtest(backtest_id)
+    if not bt:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+    return bt
 
 
 # ──────────────────────────────────────

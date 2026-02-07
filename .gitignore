@@ -9,6 +9,7 @@ build/
 .streamlit/secrets.toml
 data/*.csv
 data/*.json
+data/*.db
 .DS_Store
 .vscode/
 .idea/
