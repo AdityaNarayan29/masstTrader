@@ -197,7 +197,7 @@ export default function StrategyPage() {
               {savedStrategies.map((s) => (
                 <div
                   key={s.id}
-                  className={`flex items-center justify-between rounded-lg border px-4 py-3 ${
+                  className={`flex flex-col sm:flex-row items-start sm:items-center justify-between rounded-lg border px-4 py-3 gap-2 sm:gap-0 ${
                     editingId === s.id
                       ? "border-primary bg-primary/5"
                       : "border-border"
@@ -211,7 +211,7 @@ export default function StrategyPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -316,12 +316,12 @@ export default function StrategyPage() {
           {/* Strategy Overview */}
           <Card>
             <CardHeader>
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-col sm:flex-row items-start justify-between gap-3 sm:gap-4">
                 <div className="space-y-1">
                   <CardTitle className="text-xl">{strategy.name}</CardTitle>
                   <CardDescription>{strategy.ai_explanation}</CardDescription>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
                   <Badge variant="secondary">{strategy.symbol}</Badge>
                   <Button size="sm" onClick={handleSave} disabled={saving}>
                     {saving ? (

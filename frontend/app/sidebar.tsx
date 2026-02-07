@@ -56,7 +56,7 @@ const icons: Record<string, React.ReactNode> = {
   ),
 };
 
-export default function Sidebar() {
+export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = (resolvedTheme ?? "dark") === "dark";
@@ -74,8 +74,8 @@ export default function Sidebar() {
 
   return (
     <TooltipProvider>
-      <aside className="w-56 border-r border-border flex flex-col bg-sidebar">
-        <Link href="/" className="block p-4 hover:bg-sidebar-accent/50 transition-colors">
+      <div className="flex flex-col h-full">
+        <Link href="/" onClick={() => onNavigate?.()} className="block p-4 hover:bg-sidebar-accent/50 transition-colors">
           <h1 className="text-lg font-bold tracking-tight text-sidebar-foreground">MasstTrader</h1>
           <p className="text-xs text-muted-foreground mt-0.5">AI Trading Platform</p>
         </Link>
@@ -90,7 +90,8 @@ export default function Sidebar() {
                 <TooltipTrigger asChild>
                   <Link
                     href={item.href}
-                    className={`flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-colors ${
+                    onClick={() => onNavigate?.()}
+                    className={`flex items-center gap-3 px-3 py-2.5 text-sm rounded-md transition-colors ${
                       active
                         ? "bg-sidebar-accent text-sidebar-primary font-medium"
                         : "text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
@@ -165,7 +166,15 @@ export default function Sidebar() {
             </Button>
           </div>
         </div>
-      </aside>
+      </div>
     </TooltipProvider>
+  );
+}
+
+export default function Sidebar() {
+  return (
+    <aside className="w-56 border-r border-border flex flex-col bg-sidebar">
+      <SidebarContent />
+    </aside>
   );
 }

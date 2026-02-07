@@ -416,7 +416,7 @@ export default function ConnectionPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-6 text-sm">
+                    <div className="grid grid-cols-3 sm:flex items-center gap-3 sm:gap-6 text-sm">
                       <div>
                         <p className="text-xs text-muted-foreground">Volume</p>
                         <p className="font-medium">{pos.volume}</p>
@@ -538,7 +538,7 @@ export default function ConnectionPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-6 text-sm">
+                      <div className="grid grid-cols-2 sm:flex items-center gap-3 sm:gap-6 text-sm">
                         {trade.volume !== undefined && (
                           <div>
                             <p className="text-xs text-muted-foreground">

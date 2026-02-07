@@ -84,7 +84,7 @@ export function SymbolCombobox({
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
-          className={`justify-between font-mono ${className ?? "w-40"}`}
+          className={`justify-between font-mono ${className ?? "w-full sm:w-40"}`}
         >
           {value || "Select symbol..."}
           <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />

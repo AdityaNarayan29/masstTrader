@@ -329,12 +329,12 @@ export default function BacktestPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-6 items-end">
+          <div className="flex flex-wrap gap-4 sm:gap-6 items-end">
             {strategies.length > 0 && (
-              <div className="space-y-2">
+              <div className="space-y-2 w-full sm:w-auto">
                 <Label>Strategy</Label>
                 <Select value={selectedStrategyId} onValueChange={setSelectedStrategyId}>
-                  <SelectTrigger className="w-56">
+                  <SelectTrigger className="w-full sm:w-56">
                     <SelectValue placeholder="Use current strategy" />
                   </SelectTrigger>
                   <SelectContent>
@@ -348,24 +348,24 @@ export default function BacktestPage() {
                 </Select>
               </div>
             )}
-            <div className="space-y-2">
+            <div className="space-y-2 w-full sm:w-auto">
               <Label htmlFor="balance">Initial Balance ($)</Label>
               <Input
                 id="balance"
                 type="number"
                 value={balance}
                 onChange={(e) => setBalance(parseFloat(e.target.value) || 0)}
-                className="w-40"
+                className="w-full sm:w-40"
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 w-1/2 sm:w-auto">
               <Label htmlFor="risk">Risk per Trade (%)</Label>
               <Input
                 id="risk"
                 type="number"
                 value={risk}
                 onChange={(e) => setRisk(parseFloat(e.target.value) || 0)}
-                className="w-32"
+                className="w-full sm:w-32"
                 step="0.5"
               />
             </div>
@@ -385,7 +385,7 @@ export default function BacktestPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 w-1/2 sm:w-auto">
               <Label htmlFor="bars">Bars</Label>
               <Input
                 id="bars"
@@ -455,7 +455,7 @@ export default function BacktestPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div ref={chartContainerRef} className="h-[400px] w-full" />
+                <div ref={chartContainerRef} className="h-[280px] sm:h-[400px] w-full" />
               </CardContent>
             </Card>
           )}
@@ -472,7 +472,7 @@ export default function BacktestPage() {
             </CardHeader>
             <CardContent>
               {equityData.length >= 2 && (
-                <ChartContainer config={equityChartConfig} className="h-64 w-full">
+                <ChartContainer config={equityChartConfig} className="h-48 sm:h-64 w-full">
                   <AreaChart data={equityData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                     <defs>
                       <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
@@ -667,7 +667,7 @@ export default function BacktestPage() {
 
           {/* AI Analysis */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div>
                 <CardTitle className="text-base">AI Analysis</CardTitle>
                 <CardDescription>

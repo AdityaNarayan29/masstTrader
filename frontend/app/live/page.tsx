@@ -169,7 +169,7 @@ export default function LivePage() {
   return (
     <div className="max-w-5xl space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Live Dashboard</h1>
           <p className="text-muted-foreground text-sm mt-1">
@@ -252,7 +252,7 @@ export default function LivePage() {
 
       {/* Price Bar */}
       {stream.price && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Card className="border-green-500/20">
             <CardContent className="py-4 text-center">
               <p className="text-xs text-muted-foreground">BID</p>
@@ -291,7 +291,7 @@ export default function LivePage() {
             <LiveChart
               historicalCandles={historicalCandles}
               latestCandle={stream.candle}
-              className="h-[400px] w-full"
+              className="h-[280px] sm:h-[400px] w-full"
             />
           </CardContent>
         </Card>
@@ -471,7 +471,7 @@ export default function LivePage() {
                 <div className="space-y-2">
                   <Label>Strategy</Label>
                   <Select value={algoStrategyId} onValueChange={setAlgoStrategyId}>
-                    <SelectTrigger className="w-56">
+                    <SelectTrigger className="w-full sm:w-56">
                       <SelectValue placeholder="Select strategy" />
                     </SelectTrigger>
                     <SelectContent>
@@ -545,7 +545,7 @@ export default function LivePage() {
 
               {/* Current Price */}
               {algo.current_price && (
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div className="rounded-lg border border-green-500/20 p-3 text-center">
                     <p className="text-[10px] text-muted-foreground uppercase">Bid</p>
                     <p className="text-lg font-mono font-bold text-green-500">

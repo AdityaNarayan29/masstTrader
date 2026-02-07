@@ -103,9 +103,9 @@ const TECH = [
 
 export default function Home() {
   return (
-    <div className="max-w-5xl mx-auto space-y-16">
+    <div className="max-w-5xl mx-auto space-y-10 md:space-y-16 px-4 md:px-0">
       {/* Hero */}
-      <section className="relative overflow-hidden py-24 -mx-6 px-6">
+      <section className="relative overflow-hidden py-12 md:py-24 -mx-4 md:-mx-6 px-4 md:px-6">
         {/* Background effects */}
         <div className="absolute inset-0 -z-10">
           <div className="absolute inset-0 bg-[linear-gradient(rgba(16,185,129,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(16,185,129,0.04)_1px,transparent_1px)] bg-[size:64px_64px]" />
@@ -125,7 +125,7 @@ export default function Home() {
             </div>
           </div>
 
-          <h1 className="text-6xl md:text-7xl font-bold tracking-tighter leading-[1.05]">
+          <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tighter leading-[1.05]">
             Trade Smarter with
             <br />
             <span className="bg-gradient-to-r from-emerald-400 via-primary to-emerald-300 bg-clip-text text-transparent">
@@ -139,7 +139,7 @@ export default function Home() {
             Get AI coaching on every trade you take.
           </p>
 
-          <div className="flex justify-center gap-4 pt-2">
+          <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4 pt-2">
             <Link href="/connection">
               <Button size="lg" className="px-8 h-12 text-sm font-semibold shadow-lg shadow-primary/25">
                 Get Started
@@ -152,22 +152,22 @@ export default function Home() {
             </Link>
           </div>
 
-          <div className="flex justify-center items-center gap-8 pt-8 text-center">
+          <div className="grid grid-cols-2 sm:flex justify-center items-center gap-4 sm:gap-8 pt-8 text-center">
             <div>
               <p className="text-2xl font-bold font-mono text-primary">6</p>
               <p className="text-[11px] text-muted-foreground">AI Features</p>
             </div>
-            <div className="h-8 w-px bg-border" />
+            <div className="hidden sm:block h-8 w-px bg-border" />
             <div>
               <p className="text-2xl font-bold font-mono text-primary">Live</p>
               <p className="text-[11px] text-muted-foreground">WebSocket Stream</p>
             </div>
-            <div className="h-8 w-px bg-border" />
+            <div className="hidden sm:block h-8 w-px bg-border" />
             <div>
               <p className="text-2xl font-bold font-mono text-primary">MT5</p>
               <p className="text-[11px] text-muted-foreground">Direct Broker</p>
             </div>
-            <div className="h-8 w-px bg-border" />
+            <div className="hidden sm:block h-8 w-px bg-border" />
             <div>
               <p className="text-2xl font-bold font-mono text-primary">Free</p>
               <p className="text-[11px] text-muted-foreground">Groq AI</p>

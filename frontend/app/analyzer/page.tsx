@@ -133,7 +133,7 @@ export default function AnalyzerPage() {
           </CardHeader>
           <CardContent>
             <Select value={strategyId} onValueChange={setStrategyId}>
-              <SelectTrigger className="w-72">
+              <SelectTrigger className="w-full sm:w-72">
                 <SelectValue placeholder="Select strategy" />
               </SelectTrigger>
               <SelectContent>
