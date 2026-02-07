@@ -1,8 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
 
-const WS_BASE = (process.env.NEXT_PUBLIC_WS_URL || "").replace(/\/$/, "");
-
 export interface PriceData {
   symbol: string;
   bid: number;
@@ -77,8 +75,7 @@ export interface AlgoStatusData {
 export type StreamStatus = "disconnected" | "connecting" | "connected" | "error";
 
 export function useLiveStream(symbol: string, timeframe: string = "1m") {
-  const wsRef = useRef<WebSocket | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const esRef = useRef<EventSource | null>(null);
   const [status, setStatus] = useState<StreamStatus>("disconnected");
   const [price, setPrice] = useState<PriceData | null>(null);
   const [positions, setPositions] = useState<PositionData[]>([]);
@@ -87,101 +84,94 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
   const [algo, setAlgo] = useState<AlgoStatusData | null>(null);
   const [error, setError] = useState("");
 
+  const paramsRef = useRef({ symbol, timeframe });
+  paramsRef.current = { symbol, timeframe };
+
+  const disconnect = useCallback(() => {
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
+    setStatus("disconnected");
+  }, []);
+
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
-    if (!WS_BASE) {
-      setError("NEXT_PUBLIC_WS_URL not configured");
-      setStatus("error");
-      return;
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
     }
 
     setStatus("connecting");
     setError("");
 
-    const ws = new WebSocket(`${WS_BASE}/api/ws/live`);
-    wsRef.current = ws;
+    const { symbol: sym, timeframe: tf } = paramsRef.current;
+    const url = `/api/sse/live?symbol=${encodeURIComponent(sym)}&timeframe=${encodeURIComponent(tf)}`;
+    const es = new EventSource(url);
+    esRef.current = es;
 
-    // Timeout: if WS doesn't connect within 5s, fail gracefully
-    timeoutRef.current = setTimeout(() => {
-      if (ws.readyState !== WebSocket.OPEN) {
-        ws.close();
-        wsRef.current = null;
-        setError("WebSocket timed out — using HTTP polling instead.");
-        setStatus("error");
-      }
-    }, 5000);
-
-    ws.onopen = () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    es.onopen = () => {
       setStatus("connected");
-      ws.send(JSON.stringify({ symbol, timeframe }));
     };
 
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      switch (msg.type) {
-        case "price":
-          setPrice(msg as PriceData);
-          break;
-        case "positions":
-          setPositions(msg.data as PositionData[]);
-          break;
-        case "account":
-          setAccount(msg as AccountData);
-          break;
-        case "candle":
-          setCandle(msg as CandleData);
-          break;
-        case "algo":
-          setAlgo(msg as AlgoStatusData);
-          break;
-        case "error":
-          setError(msg.message);
-          setStatus("error");
-          break;
+    es.addEventListener("price", (e: MessageEvent) => {
+      setPrice(JSON.parse(e.data) as PriceData);
+    });
+
+    es.addEventListener("positions", (e: MessageEvent) => {
+      const msg = JSON.parse(e.data);
+      setPositions(msg.data as PositionData[]);
+    });
+
+    es.addEventListener("account", (e: MessageEvent) => {
+      setAccount(JSON.parse(e.data) as AccountData);
+    });
+
+    es.addEventListener("candle", (e: MessageEvent) => {
+      setCandle(JSON.parse(e.data) as CandleData);
+    });
+
+    es.addEventListener("algo", (e: MessageEvent) => {
+      setAlgo(JSON.parse(e.data) as AlgoStatusData);
+    });
+
+    es.addEventListener("error", (e: MessageEvent) => {
+      try {
+        const msg = JSON.parse(e.data);
+        setError(msg.message || "Stream error");
+      } catch {
+        setError("Stream error");
+      }
+      setStatus("error");
+    });
+
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) {
+        setError("SSE connection closed — using HTTP polling instead.");
+        setStatus("error");
+        esRef.current = null;
+      } else if (es.readyState === EventSource.CONNECTING) {
+        setStatus("connecting");
       }
     };
-
-    ws.onerror = () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      setError("WebSocket failed — using HTTP polling instead.");
-      setStatus("error");
-    };
-
-    ws.onclose = () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      setStatus("disconnected");
-      wsRef.current = null;
-    };
-  }, [symbol, timeframe]);
-
-  const disconnect = useCallback(() => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
   }, []);
 
   const changeSymbol = useCallback(
     (newSymbol: string, newTimeframe?: string) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({
-            symbol: newSymbol,
-            ...(newTimeframe ? { timeframe: newTimeframe } : {}),
-          })
-        );
+      paramsRef.current = {
+        symbol: newSymbol,
+        timeframe: newTimeframe || paramsRef.current.timeframe,
+      };
+      if (esRef.current) {
+        connect();
       }
     },
-    []
+    [connect]
   );
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      wsRef.current?.close();
+      esRef.current?.close();
     };
   }, []);
 

@@ -1,9 +1,9 @@
 """
 FastAPI backend — REST API for MasstTrader.
 """
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 import asyncio
@@ -1012,3 +1012,127 @@ async def ws_live(ws: WebSocket):
         pass
     except Exception:
         pass
+
+
+# ──────────────────────────────────────
+# LIVE STREAMING (SSE)
+# ──────────────────────────────────────
+
+def _sse_event(event_type: str, data: dict) -> str:
+    """Format a single SSE event string."""
+    payload = json.dumps(sanitize_for_json(data))
+    return f"event: {event_type}\ndata: {payload}\n\n"
+
+
+async def _sse_live_generator(request: Request, symbol: str, timeframe: str):
+    """Async generator yielding SSE events for live market data."""
+    global connector, algo_state
+    loop = asyncio.get_event_loop()
+
+    if not connector or not connector.is_connected:
+        yield _sse_event("error", {"message": "MT5 not connected"})
+        return
+
+    await loop.run_in_executor(mt5_executor, connector.select_symbol, symbol)
+
+    tick_counter = 0
+    while True:
+        if await request.is_disconnected():
+            break
+
+        tick_counter += 1
+
+        # Price tick — every iteration (~500ms)
+        try:
+            price = await loop.run_in_executor(
+                mt5_executor, connector.get_symbol_price, symbol
+            )
+            yield _sse_event("price", price)
+        except Exception:
+            pass
+
+        # Positions — every 2nd tick (~1s)
+        if tick_counter % 2 == 0:
+            try:
+                positions = await loop.run_in_executor(
+                    mt5_executor, connector.get_positions
+                )
+                yield _sse_event("positions", {"data": positions})
+            except Exception:
+                pass
+
+        # Account info — every 4th tick (~2s)
+        if tick_counter % 4 == 0:
+            try:
+                account = await loop.run_in_executor(
+                    mt5_executor, connector.get_account_info
+                )
+                yield _sse_event("account", account)
+            except Exception:
+                pass
+
+        # Algo status — every 2nd tick (~1s) when running
+        if tick_counter % 2 == 0 and algo_state["running"]:
+            try:
+                algo_data = {
+                    "running": algo_state["running"],
+                    "symbol": algo_state["symbol"],
+                    "timeframe": algo_state["timeframe"],
+                    "strategy_name": algo_state["strategy_name"],
+                    "volume": algo_state["volume"],
+                    "in_position": algo_state["in_position"],
+                    "position_ticket": algo_state["position_ticket"],
+                    "trades_placed": algo_state["trades_placed"],
+                    "signals": algo_state["signals"][-20:],
+                    "current_price": algo_state["current_price"],
+                    "indicators": algo_state["indicators"],
+                    "entry_conditions": algo_state["entry_conditions"],
+                    "exit_conditions": algo_state["exit_conditions"],
+                    "last_check": algo_state["last_check"],
+                }
+                yield _sse_event("algo", algo_data)
+            except Exception:
+                pass
+
+        # Candle + indicators — every 10th tick (~5s)
+        if tick_counter % 10 == 0:
+            try:
+                from backend.core.indicators import add_all_indicators, get_indicator_snapshot
+                df = await loop.run_in_executor(
+                    mt5_executor, connector.get_history,
+                    symbol, timeframe, 50
+                )
+                df = add_all_indicators(df)
+                last = df.iloc[-1]
+                indicators = get_indicator_snapshot(df, -1)
+                yield _sse_event("candle", {
+                    "time": str(df.index[-1]),
+                    "open": float(last["open"]),
+                    "high": float(last["high"]),
+                    "low": float(last["low"]),
+                    "close": float(last["close"]),
+                    "volume": float(last["volume"]),
+                    "indicators": indicators,
+                })
+            except Exception:
+                pass
+
+        # Keepalive comment — every 30th tick (~15s)
+        if tick_counter % 30 == 0:
+            yield ": keepalive\n\n"
+
+        await asyncio.sleep(0.5)
+
+
+@app.get("/api/sse/live")
+async def sse_live(request: Request, symbol: str = "EURUSDm", timeframe: str = "1m"):
+    """SSE endpoint for live market data streaming."""
+    return StreamingResponse(
+        _sse_live_generator(request, symbol, timeframe),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

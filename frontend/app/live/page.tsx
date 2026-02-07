@@ -171,7 +171,7 @@ export default function LivePage() {
 
   const statusLabel =
     stream.status === "connected"
-      ? "LIVE (WS)"
+      ? "LIVE (SSE)"
       : liveStarted
         ? "LIVE (HTTP)"
         : stream.status === "connecting"
