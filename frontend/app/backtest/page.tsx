@@ -683,7 +683,7 @@ export default function BacktestPage() {
             </CardHeader>
             {explanation && (
               <CardContent>
-                <div className="prose prose-sm prose-invert dark:prose-invert max-w-none text-sm text-muted-foreground">
+                <div className="prose prose-sm prose-lesson max-w-none text-sm">
                   <ReactMarkdown>{explanation}</ReactMarkdown>
                 </div>
               </CardContent>

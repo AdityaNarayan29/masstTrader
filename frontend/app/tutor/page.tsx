@@ -244,7 +244,7 @@ export default function TutorPage() {
                   <p className="text-sm text-muted-foreground">Generating your lesson...</p>
                 </div>
               ) : lesson ? (
-                <div className="prose prose-sm prose-invert dark:prose-invert max-w-none text-sm text-muted-foreground">
+                <div className="prose prose-sm prose-lesson max-w-none text-sm">
                   <ReactMarkdown>{lesson}</ReactMarkdown>
                 </div>
               ) : (
@@ -296,8 +296,8 @@ export default function TutorPage() {
                         <div
                           className={`prose prose-sm max-w-none text-sm ${
                             msg.role === "user"
-                              ? "text-primary-foreground prose-invert"
-                              : "text-muted-foreground dark:prose-invert"
+                              ? "text-primary-foreground [--tw-prose-body:var(--primary-foreground)] [--tw-prose-headings:var(--primary-foreground)] [--tw-prose-bold:var(--primary-foreground)]"
+                              : "prose-lesson"
                           }`}
                         >
                           <ReactMarkdown>{msg.content}</ReactMarkdown>
