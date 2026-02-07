@@ -103,29 +103,76 @@ const TECH = [
 
 export default function Home() {
   return (
-    <div className="max-w-5xl mx-auto space-y-16 py-8">
+    <div className="max-w-5xl mx-auto space-y-16">
       {/* Hero */}
-      <section className="text-center space-y-6 pt-8">
-        <div className="flex justify-center">
-          <Badge variant="secondary" className="text-xs px-3 py-1">
-            AI-Powered Trading Education Platform
-          </Badge>
+      <section className="relative overflow-hidden py-24 -mx-6 px-6">
+        {/* Background effects */}
+        <div className="absolute inset-0 -z-10">
+          <div className="absolute inset-0 bg-[linear-gradient(rgba(16,185,129,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(16,185,129,0.04)_1px,transparent_1px)] bg-[size:64px_64px]" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] bg-primary/8 rounded-full blur-[140px]" />
+          <div className="absolute -top-20 -right-20 w-[400px] h-[400px] bg-emerald-500/5 rounded-full blur-[100px]" />
+          <div className="absolute -bottom-20 -left-20 w-[300px] h-[300px] bg-emerald-500/5 rounded-full blur-[80px]" />
         </div>
-        <h1 className="text-5xl font-bold tracking-tight leading-tight">
-          Trade Smarter with{" "}
-          <span className="text-primary">MasstTrader</span>
-        </h1>
-        <p className="text-muted-foreground text-lg max-w-2xl mx-auto leading-relaxed">
-          Describe strategies in plain English. Backtest on real data. Get AI coaching on every trade.
-          Connect your MT5 broker and go from idea to execution in minutes.
-        </p>
-        <div className="flex justify-center gap-3 pt-2">
-          <Link href="/connection">
-            <Button size="lg">Get Started</Button>
-          </Link>
-          <Link href="/strategy">
-            <Button size="lg" variant="outline">Build a Strategy</Button>
-          </Link>
+
+        <div className="text-center space-y-8">
+          <div className="flex justify-center">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-primary/20 bg-primary/5 text-primary text-xs font-medium tracking-wide">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+              </span>
+              AI-Powered Trading Platform
+            </div>
+          </div>
+
+          <h1 className="text-6xl md:text-7xl font-bold tracking-tighter leading-[1.05]">
+            Trade Smarter with
+            <br />
+            <span className="bg-gradient-to-r from-emerald-400 via-primary to-emerald-300 bg-clip-text text-transparent">
+              MasstTrader
+            </span>
+          </h1>
+
+          <p className="text-muted-foreground text-lg max-w-xl mx-auto leading-relaxed">
+            Describe strategies in plain English. Backtest on real data.
+            <br className="hidden md:block" />
+            Get AI coaching on every trade you take.
+          </p>
+
+          <div className="flex justify-center gap-4 pt-2">
+            <Link href="/connection">
+              <Button size="lg" className="px-8 h-12 text-sm font-semibold shadow-lg shadow-primary/25">
+                Get Started
+              </Button>
+            </Link>
+            <Link href="/strategy">
+              <Button size="lg" variant="outline" className="px-8 h-12 text-sm font-semibold border-primary/30 hover:bg-primary/5 hover:border-primary/50">
+                Build a Strategy
+              </Button>
+            </Link>
+          </div>
+
+          <div className="flex justify-center items-center gap-8 pt-8 text-center">
+            <div>
+              <p className="text-2xl font-bold font-mono text-primary">6</p>
+              <p className="text-[11px] text-muted-foreground">AI Features</p>
+            </div>
+            <div className="h-8 w-px bg-border" />
+            <div>
+              <p className="text-2xl font-bold font-mono text-primary">Live</p>
+              <p className="text-[11px] text-muted-foreground">WebSocket Stream</p>
+            </div>
+            <div className="h-8 w-px bg-border" />
+            <div>
+              <p className="text-2xl font-bold font-mono text-primary">MT5</p>
+              <p className="text-[11px] text-muted-foreground">Direct Broker</p>
+            </div>
+            <div className="h-8 w-px bg-border" />
+            <div>
+              <p className="text-2xl font-bold font-mono text-primary">Free</p>
+              <p className="text-[11px] text-muted-foreground">Groq AI</p>
+            </div>
+          </div>
         </div>
       </section>
 
