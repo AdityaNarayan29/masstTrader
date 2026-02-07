@@ -144,7 +144,7 @@ export const api = {
   },
 
   backtest: {
-    run: (initialBalance: number, riskPercent: number, strategyId?: string) =>
+    run: (initialBalance: number, riskPercent: number, strategyId?: string, timeframe?: string, bars?: number) =>
       request<{
         trades: Array<{
           entry_price: number; exit_price: number; entry_time: string;
@@ -157,12 +157,17 @@ export const api = {
           avg_loss: number; best_trade: number; worst_trade: number; final_balance: number;
         };
         equity_curve: number[];
+        candles: Array<{
+          datetime: string; open: number; high: number; low: number; close: number; volume: number;
+        }>;
       }>("/api/backtest/run", {
         method: "POST",
         body: JSON.stringify({
           initial_balance: initialBalance,
           risk_percent: riskPercent,
           ...(strategyId ? { strategy_id: strategyId } : {}),
+          ...(timeframe ? { timeframe } : {}),
+          ...(bars ? { bars } : {}),
         }),
       }),
     explain: () =>
@@ -237,5 +242,6 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ topic, level, instruments }),
       }),
-  },
+
+    },
 };

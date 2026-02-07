@@ -106,6 +106,8 @@ class BacktestRequest(BaseModel):
     initial_balance: float = 10000.0
     risk_percent: float = 1.0
     strategy_id: Optional[str] = None
+    timeframe: str = "1h"
+    bars: int = 2000
 
 
 class TradeAnalyzeRequest(BaseModel):
@@ -451,7 +453,7 @@ def run_backtest_endpoint(req: BacktestRequest):
             from backend.core.indicators import add_all_indicators
             bt_symbol = current_strategy.get("symbol", "EURUSDm")
             connector.select_symbol(bt_symbol)
-            df_fresh = connector.get_history(bt_symbol, "5m", 2000)
+            df_fresh = connector.get_history(bt_symbol, req.timeframe, req.bars)
             df_fresh = add_all_indicators(df_fresh)
             historical_data = df_fresh
         except Exception:
@@ -476,6 +478,20 @@ def run_backtest_endpoint(req: BacktestRequest):
             initial_balance=req.initial_balance,
             risk_per_trade=req.risk_percent,
         )
+
+        # Include candle data for the chart
+        candle_cols = ["datetime", "open", "high", "low", "close", "volume"]
+        candles_for_chart = []
+        for _, row in df.iterrows():
+            candle = {}
+            for col in candle_cols:
+                if col in row.index:
+                    candle[col] = row[col] if col == "datetime" else float(row[col])
+                    if col == "datetime":
+                        candle[col] = str(candle[col])
+            candles_for_chart.append(candle)
+        result["candles"] = candles_for_chart
+
         result = sanitize_for_json(result)
         backtest_results = result
 

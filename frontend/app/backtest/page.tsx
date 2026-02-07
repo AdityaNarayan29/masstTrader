@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import {
@@ -13,6 +13,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import {
+  createChart,
+  CandlestickSeries,
+  createSeriesMarkers,
+  type IChartApi,
+  type CandlestickData,
+  type Time,
+} from "lightweight-charts";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -73,11 +81,22 @@ interface Trade {
   exit_reason: string;
 }
 
+interface BacktestCandle {
+  datetime: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
 export default function BacktestPage() {
   const [strategies, setStrategies] = useState<Array<{ id: string; name: string; symbol: string }>>([]);
   const [selectedStrategyId, setSelectedStrategyId] = useState("__current__");
   const [balance, setBalance] = useState(10000);
   const [risk, setRisk] = useState(1);
+  const [timeframe, setTimeframe] = useState("1h");
+  const [bars, setBars] = useState(2000);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -86,9 +105,14 @@ export default function BacktestPage() {
   const [stats, setStats] = useState<BacktestStats | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [equityCurve, setEquityCurve] = useState<number[]>([]);
+  const [candles, setCandles] = useState<BacktestCandle[]>([]);
   const [error, setError] = useState("");
   const [explanation, setExplanation] = useState("");
   const [explaining, setExplaining] = useState(false);
+
+  // Candlestick chart refs
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
 
   const handleRun = async () => {
     setLoading(true);
@@ -96,16 +120,103 @@ export default function BacktestPage() {
     setExplanation("");
     try {
       const stratId = selectedStrategyId !== "__current__" ? selectedStrategyId : undefined;
-      const result = await api.backtest.run(balance, risk, stratId);
+      const result = await api.backtest.run(balance, risk, stratId, timeframe, bars);
       setStats(result.stats);
       setTrades(result.trades);
       setEquityCurve(result.equity_curve);
+      setCandles(result.candles || []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Backtest failed");
     } finally {
       setLoading(false);
     }
   };
+
+  // Render candlestick chart with trade markers
+  useEffect(() => {
+    if (!chartContainerRef.current || candles.length === 0) return;
+
+    // Clean up previous chart
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+    }
+
+    const chart = createChart(chartContainerRef.current, {
+      layout: {
+        background: { color: "transparent" },
+        textColor: "#a1a1aa",
+      },
+      grid: {
+        vertLines: { color: "rgba(255,255,255,0.05)" },
+        horzLines: { color: "rgba(255,255,255,0.05)" },
+      },
+      crosshair: { mode: 0 },
+      rightPriceScale: { borderColor: "rgba(255,255,255,0.1)" },
+      timeScale: { borderColor: "rgba(255,255,255,0.1)", timeVisible: true },
+    });
+    chartRef.current = chart;
+
+    const series = chart.addSeries(CandlestickSeries, {
+      upColor: "#22c55e",
+      downColor: "#ef4444",
+      borderUpColor: "#22c55e",
+      borderDownColor: "#ef4444",
+      wickUpColor: "#22c55e",
+      wickDownColor: "#ef4444",
+    });
+
+    const chartData: CandlestickData<Time>[] = candles.map((c) => ({
+      time: (Math.floor(new Date(c.datetime).getTime() / 1000)) as Time,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    }));
+    series.setData(chartData);
+
+    // Add trade markers
+    if (trades.length > 0) {
+      const markers = trades.flatMap((t) => {
+        const entryTime = (Math.floor(new Date(t.entry_time).getTime() / 1000)) as Time;
+        const exitTime = (Math.floor(new Date(t.exit_time).getTime() / 1000)) as Time;
+        return [
+          {
+            time: entryTime,
+            position: "belowBar" as const,
+            color: "#22c55e",
+            shape: "arrowUp" as const,
+            text: `BUY ${t.entry_price.toFixed(5)}`,
+          },
+          {
+            time: exitTime,
+            position: "aboveBar" as const,
+            color: t.profit >= 0 ? "#22c55e" : "#ef4444",
+            shape: "arrowDown" as const,
+            text: `${t.exit_reason} ${t.profit >= 0 ? "+" : ""}$${t.profit.toFixed(2)}`,
+          },
+        ];
+      });
+      // Sort markers by time (required by lightweight-charts)
+      markers.sort((a, b) => (a.time as number) - (b.time as number));
+      createSeriesMarkers(series, markers);
+    }
+
+    chart.timeScale().fitContent();
+
+    // Responsive resize
+    const ro = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect;
+      chart.applyOptions({ width, height });
+    });
+    ro.observe(chartContainerRef.current);
+
+    return () => {
+      ro.disconnect();
+      chart.remove();
+      chartRef.current = null;
+    };
+  }, [candles, trades]);
 
   const handleExplain = async () => {
     setExplaining(true);
@@ -257,6 +368,32 @@ export default function BacktestPage() {
                 step="0.5"
               />
             </div>
+            <div className="space-y-2">
+              <Label>Timeframe</Label>
+              <Select value={timeframe} onValueChange={setTimeframe}>
+                <SelectTrigger className="w-24">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="5m">5m</SelectItem>
+                  <SelectItem value="15m">15m</SelectItem>
+                  <SelectItem value="30m">30m</SelectItem>
+                  <SelectItem value="1h">1h</SelectItem>
+                  <SelectItem value="4h">4h</SelectItem>
+                  <SelectItem value="1d">1d</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bars">Bars</Label>
+              <Input
+                id="bars"
+                type="number"
+                value={bars}
+                onChange={(e) => setBars(parseInt(e.target.value) || 500)}
+                className="w-24"
+              />
+            </div>
             <Button onClick={handleRun} disabled={loading}>
               {loading ? "Running..." : "Run Backtest"}
             </Button>
@@ -298,6 +435,28 @@ export default function BacktestPage() {
               Final Balance: ${stats.final_balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Badge>
           </div>
+
+          {/* Price Chart with Trade Markers */}
+          {candles.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Price Chart
+                  {trades.length > 0 && (
+                    <Badge variant="secondary" className="ml-2 text-xs">
+                      {trades.length} trades marked
+                    </Badge>
+                  )}
+                </CardTitle>
+                <CardDescription>
+                  Historical candles used for backtesting — green arrows = entries, red arrows = exits
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div ref={chartContainerRef} className="h-[400px] w-full" />
+              </CardContent>
+            </Card>
+          )}
 
           <Separator />
 
