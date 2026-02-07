@@ -112,52 +112,6 @@ export default function Home() {
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] bg-primary/8 rounded-full blur-[140px]" />
           <div className="absolute -top-20 -right-20 w-[400px] h-[400px] bg-emerald-500/5 rounded-full blur-[100px]" />
           <div className="absolute -bottom-20 -left-20 w-[300px] h-[300px] bg-emerald-500/5 rounded-full blur-[80px]" />
-
-          {/* Animated trading chart */}
-          <svg className="absolute bottom-0 left-0 w-full h-[70%]" viewBox="0 0 1200 400" preserveAspectRatio="none" fill="none">
-            <defs>
-              <linearGradient id="heroChartFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="rgb(16 185 129)" stopOpacity="0.06" />
-                <stop offset="100%" stopColor="rgb(16 185 129)" stopOpacity="0" />
-              </linearGradient>
-              <linearGradient id="heroChartStroke" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="rgb(16 185 129)" stopOpacity="0" />
-                <stop offset="12%" stopColor="rgb(16 185 129)" stopOpacity="0.5" />
-                <stop offset="50%" stopColor="rgb(16 185 129)" stopOpacity="0.5" />
-                <stop offset="88%" stopColor="rgb(16 185 129)" stopOpacity="0.5" />
-                <stop offset="100%" stopColor="rgb(16 185 129)" stopOpacity="0" />
-              </linearGradient>
-              <filter id="heroGlow">
-                <feGaussianBlur stdDeviation="2" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            {/* Area fill */}
-            <path
-              d="M0,385 L40,383 L80,386 L120,380 L160,382 L200,378 L240,381 L280,374 L320,377 L360,368 L400,372 L440,360 L470,365 L500,352 L530,358 L560,342 L590,350 L620,332 L650,340 L680,318 L710,328 L740,305 L770,316 L800,288 L830,300 L860,272 L890,285 L920,252 L950,268 L980,230 L1010,248 L1040,205 L1070,225 L1100,175 L1130,198 L1160,140 L1190,160 L1200,130 L1200,400 L0,400 Z"
-              fill="url(#heroChartFill)"
-              className="hero-chart-area"
-            />
-            {/* Main line */}
-            <path
-              d="M0,385 L40,383 L80,386 L120,380 L160,382 L200,378 L240,381 L280,374 L320,377 L360,368 L400,372 L440,360 L470,365 L500,352 L530,358 L560,342 L590,350 L620,332 L650,340 L680,318 L710,328 L740,305 L770,316 L800,288 L830,300 L860,272 L890,285 L920,252 L950,268 L980,230 L1010,248 L1040,205 L1070,225 L1100,175 L1130,198 L1160,140 L1190,160 L1200,130"
-              stroke="url(#heroChartStroke)"
-              strokeWidth="1.5"
-              filter="url(#heroGlow)"
-              className="hero-chart-line"
-            />
-            {/* Secondary ghost line */}
-            <path
-              d="M0,392 L100,390 L200,387 L300,384 L400,380 L500,370 L600,355 L700,335 L800,310 L900,278 L1000,240 L1100,190 L1200,148"
-              stroke="rgb(16 185 129)"
-              strokeWidth="1"
-              strokeOpacity="0.04"
-              className="hero-chart-ghost"
-            />
-          </svg>
         </div>
 
         <div className="text-center space-y-8">

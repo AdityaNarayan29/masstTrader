@@ -129,42 +129,6 @@ body {
   --sidebar-ring: oklch(0.696 0.17 162.48);
 }
 
-/* Hero chart animations */
-.hero-chart-line {
-  stroke-dasharray: 3500;
-  stroke-dashoffset: 3500;
-  animation: hero-draw 3s ease-out forwards, hero-glow-pulse 4s ease-in-out 3s infinite;
-}
-
-.hero-chart-area {
-  opacity: 0;
-  animation: hero-fade-in 2s ease-out 1.5s forwards, hero-area-pulse 4s ease-in-out 3.5s infinite;
-}
-
-.hero-chart-ghost {
-  stroke-dasharray: 3500;
-  stroke-dashoffset: 3500;
-  animation: hero-draw 4s ease-out 0.5s forwards;
-}
-
-@keyframes hero-draw {
-  to { stroke-dashoffset: 0; }
-}
-
-@keyframes hero-fade-in {
-  to { opacity: 1; }
-}
-
-@keyframes hero-glow-pulse {
-  0%, 100% { filter: url(#heroGlow) drop-shadow(0 0 2px rgba(16, 185, 129, 0.1)); }
-  50% { filter: url(#heroGlow) drop-shadow(0 0 6px rgba(16, 185, 129, 0.25)); }
-}
-
-@keyframes hero-area-pulse {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
-}
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
