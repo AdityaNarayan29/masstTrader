@@ -100,11 +100,12 @@ def add_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
 
 
 def add_volume_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    vol = df["volume"].astype(float)
     df["OBV"] = ta.volume.OnBalanceVolumeIndicator(
-        close=df["close"], volume=df["volume"]
+        close=df["close"], volume=vol
     ).on_balance_volume()
-    df["Volume_SMA_20"] = df["volume"].rolling(window=20).mean()
-    df["Volume_ratio"] = df["volume"] / df["Volume_SMA_20"]
+    df["Volume_SMA_20"] = vol.rolling(window=20).mean()
+    df["Volume_ratio"] = vol / df["Volume_SMA_20"]
     return df
 
 

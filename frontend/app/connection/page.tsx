@@ -300,13 +300,24 @@ export default function ConnectionPage() {
                 />
               </div>
             </div>
-            <div className="mt-6">
+            <div className="mt-6 flex items-center gap-3">
               <Button
                 onClick={handleConnect}
                 disabled={loading || !login || !password || !server}
               >
                 {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                 {loading ? "Connecting..." : "Connect to MT5"}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={loading}
+                onClick={() => {
+                  setLogin("260210496");
+                  setPassword("Password@123");
+                  setServer("Exness-MT5Trial15");
+                }}
+              >
+                Fill Demo Credentials
               </Button>
             </div>
           </CardContent>
