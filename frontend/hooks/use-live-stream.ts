@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
 
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+
 export interface PriceData {
   symbol: string;
   bid: number;
@@ -107,7 +109,7 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
     setError("");
 
     const { symbol: sym, timeframe: tf } = paramsRef.current;
-    const url = `/api/sse/live?symbol=${encodeURIComponent(sym)}&timeframe=${encodeURIComponent(tf)}`;
+    const url = `${API_BASE}/api/sse/live?symbol=${encodeURIComponent(sym)}&timeframe=${encodeURIComponent(tf)}`;
     const es = new EventSource(url);
     esRef.current = es;
 

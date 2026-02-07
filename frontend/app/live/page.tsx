@@ -79,9 +79,14 @@ export default function LivePage() {
     ? stream.algo
     : polledAlgo;
 
-  // Load saved strategies for algo picker
+  // Load saved strategies for algo picker — auto-select first if none chosen
   useEffect(() => {
-    api.strategies.list().then(setStrategies).catch(() => {});
+    api.strategies.list().then((list) => {
+      setStrategies(list);
+      if (list.length > 0 && algoStrategyId === "__current__") {
+        setAlgoStrategyId(list[0].id);
+      }
+    }).catch(() => {});
   }, []);
 
   // HTTP poll for live data when WS is not connected
@@ -510,7 +515,7 @@ export default function LivePage() {
               </div>
               <Button
                 onClick={handleAlgoStart}
-                disabled={algoLoading}
+                disabled={algoLoading || (algoStrategyId === "__current__" && strategies.length > 0)}
               >
                 {algoLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                 {algoLoading ? "Starting..." : "Start Algo Trading"}

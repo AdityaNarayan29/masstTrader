@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import { api } from "@/lib/api";
+import { useTicker } from "@/hooks/use-ticker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -61,6 +62,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = (resolvedTheme ?? "dark") === "dark";
   const [status, setStatus] = useState<{ mt5: boolean; data: boolean; strategy: boolean } | null>(null);
+  const ticker = useTicker("EURUSDm");
 
   useEffect(() => {
     const poll = () =>
@@ -108,6 +110,54 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             );
           })}
         </nav>
+
+        <Separator />
+
+        {/* Live Ticker */}
+        {ticker.price && (
+          <div className="px-4 py-3 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                {ticker.price.symbol}
+              </span>
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <div>
+                <span className="text-[10px] text-muted-foreground">BID </span>
+                <span className="text-sm font-mono font-semibold text-green-500">
+                  {ticker.price.bid.toFixed(5)}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] text-muted-foreground">ASK </span>
+                <span className="text-sm font-mono font-semibold text-red-500">
+                  {ticker.price.ask.toFixed(5)}
+                </span>
+              </div>
+            </div>
+            {ticker.equity != null && (
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-muted-foreground">
+                  Equity: <span className="font-mono font-medium text-foreground">${ticker.equity.toFixed(0)}</span>
+                </span>
+                {ticker.profit != null && (
+                  <span className={`font-mono font-medium ${ticker.profit >= 0 ? "text-green-500" : "text-red-500"}`}>
+                    {ticker.profit >= 0 ? "+" : ""}${ticker.profit.toFixed(2)}
+                  </span>
+                )}
+              </div>
+            )}
+            {ticker.algo?.running && (
+              <Badge variant="default" className="text-[10px] h-5 w-full justify-center animate-pulse">
+                ALGO RUNNING
+              </Badge>
+            )}
+          </div>
+        )}
 
         <Separator />
 

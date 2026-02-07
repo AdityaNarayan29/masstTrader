@@ -1136,3 +1136,68 @@ async def sse_live(request: Request, symbol: str = "EURUSDm", timeframe: str = "
             "X-Accel-Buffering": "no",
         },
     )
+
+
+async def _sse_ticker_generator(request: Request, symbol: str):
+    """Lightweight SSE: just price + account every ~1s for sidebar ticker."""
+    global connector, algo_state
+    loop = asyncio.get_event_loop()
+
+    if not connector or not connector.is_connected:
+        yield _sse_event("error", {"message": "MT5 not connected"})
+        return
+
+    await loop.run_in_executor(mt5_executor, connector.select_symbol, symbol)
+
+    tick_counter = 0
+    while True:
+        if await request.is_disconnected():
+            break
+
+        tick_counter += 1
+
+        try:
+            price = await loop.run_in_executor(
+                mt5_executor, connector.get_symbol_price, symbol
+            )
+            yield _sse_event("price", price)
+        except Exception:
+            pass
+
+        # Account every 4th tick (~4s)
+        if tick_counter % 4 == 0:
+            try:
+                account = await loop.run_in_executor(
+                    mt5_executor, connector.get_account_info
+                )
+                yield _sse_event("account", account)
+            except Exception:
+                pass
+
+        # Algo running status — every 2nd tick (~2s)
+        if tick_counter % 2 == 0:
+            yield _sse_event("algo_status", {
+                "running": algo_state["running"],
+                "symbol": algo_state["symbol"],
+                "trades_placed": algo_state["trades_placed"],
+                "in_position": algo_state["in_position"],
+            })
+
+        if tick_counter % 30 == 0:
+            yield ": keepalive\n\n"
+
+        await asyncio.sleep(1)
+
+
+@app.get("/api/sse/ticker")
+async def sse_ticker(request: Request, symbol: str = "EURUSDm"):
+    """Lightweight SSE for sidebar price ticker."""
+    return StreamingResponse(
+        _sse_ticker_generator(request, symbol),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
