@@ -63,23 +63,51 @@ export default function LivePage() {
   const algoInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stream = useLiveStream(symbol, timeframe);
+  const liveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [polledPrice, setPolledPrice] = useState<{ bid: number; ask: number; symbol: string } | null>(null);
+  const [polledAccount, setPolledAccount] = useState<typeof stream.account>(null);
+  const [polledPositions, setPolledPositions] = useState<typeof stream.positions>([]);
+  const [liveStarted, setLiveStarted] = useState(false);
 
-  // WS-streamed algo is primary; HTTP poll is fallback
-  const algo = stream.algo ?? polledAlgo;
+  // Merge WS + HTTP data: WS wins when connected, HTTP poll fills in otherwise
+  const price = stream.price ?? (polledPrice ? { ...polledPrice, last: 0, volume: 0, time: "" } : null);
+  const account = stream.account ?? polledAccount;
+  const positions = stream.positions.length > 0 ? stream.positions : polledPositions;
+
+  // WS provides real-time updates; HTTP poll is authoritative for state
+  const algo: AlgoStatus | null = polledAlgo?.running && stream.algo
+    ? stream.algo
+    : polledAlgo;
 
   // Load saved strategies for algo picker
   useEffect(() => {
     api.strategies.list().then(setStrategies).catch(() => {});
   }, []);
 
-  // HTTP poll — fast when WS is not connected, slow when WS is streaming
+  // HTTP poll for live data when WS is not connected
   useEffect(() => {
-    const interval = stream.status === "connected" ? 10000 : 3000;
+    if (stream.status === "connected" || !liveStarted) {
+      if (liveInterval.current) { clearInterval(liveInterval.current); liveInterval.current = null; }
+      return;
+    }
+    // WS failed or disconnected — poll via HTTP
+    const poll = () => {
+      api.mt5.price(symbol).then(setPolledPrice).catch(() => {});
+      api.mt5.account().then(setPolledAccount).catch(() => {});
+      api.mt5.positions().then(setPolledPositions).catch(() => {});
+    };
+    poll();
+    liveInterval.current = setInterval(poll, 2000);
+    return () => { if (liveInterval.current) clearInterval(liveInterval.current); };
+  }, [stream.status, liveStarted, symbol]);
+
+  // HTTP poll as baseline (2s) for algo; WS overlays real-time when connected
+  useEffect(() => {
     const poll = () => api.algo.status().then(setPolledAlgo).catch(() => {});
     poll();
-    algoInterval.current = setInterval(poll, interval);
+    algoInterval.current = setInterval(poll, 2000);
     return () => { if (algoInterval.current) clearInterval(algoInterval.current); };
-  }, [stream.status]);
+  }, []);
 
   const handleAlgoStart = async () => {
     setAlgoLoading(true);
@@ -110,6 +138,7 @@ export default function LivePage() {
 
   const handleStart = async () => {
     setLoadingChart(true);
+    setLiveStarted(true);
     try {
       const data = await api.data.fetch(symbol, timeframe, 200);
       setHistoricalCandles(data.candles as unknown as HistoricalCandle[]);
@@ -124,26 +153,29 @@ export default function LivePage() {
 
   const handleStop = () => {
     stream.disconnect();
+    setLiveStarted(false);
   };
 
-  const spread = stream.price
-    ? ((stream.price.ask - stream.price.bid) * 100000).toFixed(1)
+  const spread = price
+    ? ((price.ask - price.bid) * 100000).toFixed(1)
     : "---";
 
   const statusColor =
     stream.status === "connected"
       ? "default"
-      : stream.status === "error"
-        ? "destructive"
-        : ("secondary" as const);
+      : liveStarted
+        ? ("secondary" as const)
+        : stream.status === "error"
+          ? "destructive"
+          : ("secondary" as const);
 
   const statusLabel =
     stream.status === "connected"
-      ? "LIVE"
-      : stream.status === "connecting"
-        ? "CONNECTING..."
-        : stream.status === "error"
-          ? "ERROR"
+      ? "LIVE (WS)"
+      : liveStarted
+        ? "LIVE (HTTP)"
+        : stream.status === "connecting"
+          ? "CONNECTING..."
           : "OFFLINE";
 
   return (
@@ -185,7 +217,7 @@ export default function LivePage() {
               <SymbolCombobox
                 value={symbol}
                 onChange={setSymbol}
-                disabled={stream.status === "connected"}
+                disabled={liveStarted}
               />
             </div>
             <div className="space-y-2">
@@ -193,7 +225,7 @@ export default function LivePage() {
               <Select
                 value={timeframe}
                 onValueChange={setTimeframe}
-                disabled={stream.status === "connected"}
+                disabled={liveStarted}
               >
                 <SelectTrigger className="w-24">
                   <SelectValue />
@@ -207,7 +239,7 @@ export default function LivePage() {
                 </SelectContent>
               </Select>
             </div>
-            {stream.status !== "connected" ? (
+            {!liveStarted ? (
               <Button
                 onClick={handleStart}
                 disabled={
@@ -231,13 +263,13 @@ export default function LivePage() {
       </Card>
 
       {/* Price Bar */}
-      {stream.price && (
+      {price && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Card className="border-green-500/20">
             <CardContent className="py-4 text-center">
               <p className="text-xs text-muted-foreground">BID</p>
               <p className="text-2xl font-mono font-bold text-green-500 mt-1">
-                {stream.price.bid.toFixed(5)}
+                {price.bid.toFixed(5)}
               </p>
             </CardContent>
           </Card>
@@ -252,7 +284,7 @@ export default function LivePage() {
             <CardContent className="py-4 text-center">
               <p className="text-xs text-muted-foreground">ASK</p>
               <p className="text-2xl font-mono font-bold text-red-500 mt-1">
-                {stream.price.ask.toFixed(5)}
+                {price.ask.toFixed(5)}
               </p>
             </CardContent>
           </Card>
@@ -278,32 +310,32 @@ export default function LivePage() {
       )}
 
       {/* Account Info */}
-      {stream.account && (
+      {account && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
             {
               label: "Balance",
-              value: `$${stream.account.balance.toFixed(2)}`,
+              value: `$${account.balance.toFixed(2)}`,
               color: "",
             },
             {
               label: "Equity",
-              value: `$${stream.account.equity.toFixed(2)}`,
+              value: `$${account.equity.toFixed(2)}`,
               color:
-                stream.account.equity >= stream.account.balance
+                account.equity >= account.balance
                   ? "text-green-500"
                   : "text-red-500",
             },
             {
               label: "Free Margin",
-              value: `$${stream.account.free_margin.toFixed(2)}`,
+              value: `$${account.free_margin.toFixed(2)}`,
               color: "",
             },
             {
               label: "Floating P/L",
-              value: `${stream.account.profit >= 0 ? "+" : ""}$${stream.account.profit.toFixed(2)}`,
+              value: `${account.profit >= 0 ? "+" : ""}$${account.profit.toFixed(2)}`,
               color:
-                stream.account.profit >= 0 ? "text-green-500" : "text-red-500",
+                account.profit >= 0 ? "text-green-500" : "text-red-500",
             },
           ].map((m) => (
             <Card key={m.label} className="py-4">
@@ -319,13 +351,13 @@ export default function LivePage() {
       )}
 
       {/* Positions */}
-      {stream.positions.length > 0 && (
+      {positions.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
               Open Positions
               <Badge variant="secondary" className="ml-2 text-xs">
-                {stream.positions.length} active
+                {positions.length} active
               </Badge>
             </CardTitle>
             <CardDescription>
@@ -349,7 +381,7 @@ export default function LivePage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {stream.positions.map((pos) => (
+                  {positions.map((pos) => (
                     <TableRow key={pos.ticket}>
                       <TableCell className="font-mono text-xs">
                         {pos.ticket}

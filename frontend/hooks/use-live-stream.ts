@@ -78,6 +78,7 @@ export type StreamStatus = "disconnected" | "connecting" | "connected" | "error"
 
 export function useLiveStream(symbol: string, timeframe: string = "1m") {
   const wsRef = useRef<WebSocket | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [status, setStatus] = useState<StreamStatus>("disconnected");
   const [price, setPrice] = useState<PriceData | null>(null);
   const [positions, setPositions] = useState<PositionData[]>([]);
@@ -100,7 +101,18 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
     const ws = new WebSocket(`${WS_BASE}/api/ws/live`);
     wsRef.current = ws;
 
+    // Timeout: if WS doesn't connect within 5s, fail gracefully
+    timeoutRef.current = setTimeout(() => {
+      if (ws.readyState !== WebSocket.OPEN) {
+        ws.close();
+        wsRef.current = null;
+        setError("WebSocket timed out — using HTTP polling instead.");
+        setStatus("error");
+      }
+    }, 5000);
+
     ws.onopen = () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
       setStatus("connected");
       ws.send(JSON.stringify({ symbol, timeframe }));
     };
@@ -131,17 +143,20 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
     };
 
     ws.onerror = () => {
-      setError("Unable to connect to live stream. Check that the backend is running.");
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      setError("WebSocket failed — using HTTP polling instead.");
       setStatus("error");
     };
 
     ws.onclose = () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
       setStatus("disconnected");
       wsRef.current = null;
     };
   }, [symbol, timeframe]);
 
   const disconnect = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
@@ -165,6 +180,7 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
       wsRef.current?.close();
     };
   }, []);
