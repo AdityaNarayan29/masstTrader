@@ -11,6 +11,12 @@ const PAGES = [
     badge: "Setup",
   },
   {
+    href: "/live",
+    title: "Live Dashboard",
+    desc: "Real-time streaming prices, positions, indicators, and TradingView charts",
+    badge: "Live",
+  },
+  {
     href: "/strategy",
     title: "Strategy Builder",
     desc: "Describe your strategy in plain English — AI converts it to executable rules",

@@ -1,11 +1,13 @@
 """
 FastAPI backend — REST API for MasstTrader.
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import json
 import math
 import sys
@@ -50,6 +52,21 @@ current_strategy = None
 backtest_results = None
 trade_history = None
 
+# Algo trading state
+algo_state = {
+    "running": False,
+    "symbol": None,
+    "timeframe": "5m",
+    "strategy_name": None,
+    "volume": 0.01,
+    "signals": [],       # recent signal log
+    "trades_placed": 0,
+    "in_position": False,
+    "position_ticket": None,
+}
+algo_thread = None
+algo_stop_event = threading.Event()
+
 
 # ── Request/Response Models ──
 class MT5LoginRequest(BaseModel):
@@ -61,7 +78,7 @@ class MT5LoginRequest(BaseModel):
 
 class FetchDataRequest(BaseModel):
     symbol: str
-    timeframe: str = "1h"
+    timeframe: str = "5m"
     bars: int = 500
 
 
@@ -93,6 +110,13 @@ class PlaceTradeRequest(BaseModel):
     volume: float
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
+
+
+class AlgoStartRequest(BaseModel):
+    symbol: str = "EURUSDm"
+    timeframe: str = "5m"
+    volume: float = 0.01
+    strategy_id: Optional[str] = None
 
 
 class LessonRequest(BaseModel):
@@ -243,23 +267,24 @@ def fetch_data(req: FetchDataRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/data/demo")
-def load_demo_data():
+def _load_demo_data():
+    """Generate demo EURUSD data and store in historical_data global."""
     global historical_data
     import numpy as np
     import pandas as pd
     from backend.core.indicators import add_all_indicators
 
     np.random.seed(42)
-    dates = pd.date_range("2024-01-01", periods=500, freq="1h")
-    close = 1.1000 + np.cumsum(np.random.randn(500) * 0.001)
-    high = close + np.abs(np.random.randn(500) * 0.0005)
-    low = close - np.abs(np.random.randn(500) * 0.0005)
-    open_price = close + np.random.randn(500) * 0.0003
-    volume = np.random.randint(100, 10000, 500).astype(float)
+    n = 1000
+    dates = pd.date_range("2024-01-01", periods=n, freq="5min")
+    close = 1.1000 + np.cumsum(np.random.randn(n) * 0.0003)
+    high = close + np.abs(np.random.randn(n) * 0.0002)
+    low = close - np.abs(np.random.randn(n) * 0.0002)
+    open_price = close + np.random.randn(n) * 0.0001
+    volume = np.random.randint(100, 10000, n).astype(float)
 
     df = pd.DataFrame({
-        "datetime": dates,
+        "datetime": dates[:len(close)],
         "open": open_price,
         "high": high,
         "low": low,
@@ -270,12 +295,16 @@ def load_demo_data():
     df = add_all_indicators(df)
     historical_data = df
 
-    df_reset = df.reset_index()
+
+@app.post("/api/data/demo")
+def load_demo_data():
+    _load_demo_data()
+    df_reset = historical_data.reset_index()
     df_reset["datetime"] = df_reset["datetime"].astype(str)
     data = {
         "candles": df_reset.to_dict(orient="records"),
-        "count": len(df),
-        "columns": list(df.columns),
+        "count": len(historical_data),
+        "columns": list(historical_data.columns),
     }
     return JSONResponse(content=sanitize_for_json(data))
 
@@ -400,7 +429,8 @@ def run_backtest_endpoint(req: BacktestRequest):
     if not current_strategy:
         raise HTTPException(status_code=400, detail="No strategy loaded. Parse one first.")
     if historical_data is None:
-        raise HTTPException(status_code=400, detail="No historical data. Fetch or load demo first.")
+        # Auto-load demo data so backtest works without a separate step
+        _load_demo_data()
 
     try:
         from backend.core.backtester import run_backtest
@@ -515,6 +545,183 @@ def get_lesson_endpoint(req: LessonRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ──────────────────────────────────────
+# ALGO TRADING ENGINE
+# ──────────────────────────────────────
+
+def _add_signal(action: str, detail: str):
+    """Append a signal entry to algo_state (keep last 50)."""
+    from datetime import datetime, timezone
+    algo_state["signals"].append({
+        "time": datetime.now(timezone.utc).isoformat(),
+        "action": action,
+        "detail": detail,
+    })
+    if len(algo_state["signals"]) > 50:
+        algo_state["signals"] = algo_state["signals"][-50:]
+
+
+def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
+    """Background thread: monitors market and trades based on strategy rules."""
+    from backend.core.indicators import add_all_indicators
+    from backend.core.backtester import evaluate_condition
+    import time as _time
+
+    rules = strategy.get("rules", [])
+    if not rules:
+        _add_signal("error", "Strategy has no rules")
+        algo_state["running"] = False
+        return
+
+    rule = rules[0]
+    entry_conditions = rule.get("entry_conditions", [])
+    exit_conditions = rule.get("exit_conditions", [])
+    sl_pips = rule.get("stop_loss_pips")
+    tp_pips = rule.get("take_profit_pips")
+
+    connector.select_symbol(symbol)
+    _add_signal("start", f"Algo started: {symbol} / {timeframe} / vol={volume}")
+
+    while not algo_stop_event.is_set():
+        try:
+            # Fetch latest candles + indicators
+            df = connector.get_history(symbol, timeframe, 100)
+            df = add_all_indicators(df)
+            df = df.dropna().reset_index()
+
+            if len(df) < 2:
+                _time.sleep(10)
+                continue
+
+            row = df.iloc[-1]
+            prev_row = df.iloc[-2]
+
+            if not algo_state["in_position"]:
+                # Check entry conditions
+                all_entry = all(
+                    evaluate_condition(row, prev_row, c) for c in entry_conditions
+                )
+                if all_entry and len(entry_conditions) > 0:
+                    # Place buy trade
+                    try:
+                        price_info = connector.get_symbol_price(symbol)
+                        result = connector.place_trade(
+                            symbol=symbol,
+                            trade_type="buy",
+                            volume=volume,
+                            stop_loss=price_info["ask"] - sl_pips * 0.0001 if sl_pips else None,
+                            take_profit=price_info["ask"] + tp_pips * 0.0001 if tp_pips else None,
+                        )
+                        if result.get("success"):
+                            algo_state["in_position"] = True
+                            algo_state["position_ticket"] = result.get("order_id")
+                            algo_state["trades_placed"] += 1
+                            _add_signal("buy", f"Entry at {price_info['ask']:.5f} | ticket={result.get('order_id')}")
+                        else:
+                            _add_signal("error", f"Trade failed: {result.get('message', 'unknown')}")
+                    except Exception as e:
+                        _add_signal("error", f"Trade error: {str(e)}")
+            else:
+                # Check exit conditions
+                all_exit = exit_conditions and all(
+                    evaluate_condition(row, prev_row, c) for c in exit_conditions
+                )
+                if all_exit:
+                    # Close position
+                    try:
+                        ticket = algo_state["position_ticket"]
+                        if ticket:
+                            result = connector.close_position(ticket)
+                            _add_signal("close", f"Exit signal — closed ticket {ticket}")
+                        algo_state["in_position"] = False
+                        algo_state["position_ticket"] = None
+                    except Exception as e:
+                        _add_signal("error", f"Close error: {str(e)}")
+
+                # Also check if position was closed externally (SL/TP hit)
+                if algo_state["in_position"]:
+                    positions = connector.get_positions()
+                    ticket = algo_state["position_ticket"]
+                    still_open = any(p["ticket"] == ticket for p in positions)
+                    if not still_open:
+                        _add_signal("closed", f"Position {ticket} closed (SL/TP or manual)")
+                        algo_state["in_position"] = False
+                        algo_state["position_ticket"] = None
+
+        except Exception as e:
+            _add_signal("error", str(e))
+
+        # Wait before next check (30s for minute timeframes)
+        algo_stop_event.wait(30)
+
+    _add_signal("stop", "Algo stopped")
+    algo_state["running"] = False
+
+
+@app.post("/api/algo/start")
+def algo_start(req: AlgoStartRequest):
+    global algo_thread, current_strategy
+
+    if algo_state["running"]:
+        raise HTTPException(status_code=400, detail="Algo already running")
+    if not connector or not connector.is_connected:
+        raise HTTPException(status_code=400, detail="MT5 not connected")
+
+    # Load strategy if ID provided
+    if req.strategy_id:
+        saved = get_strategy(req.strategy_id)
+        if not saved:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+        current_strategy = saved
+
+    if not current_strategy:
+        raise HTTPException(status_code=400, detail="No strategy loaded")
+
+    algo_stop_event.clear()
+    algo_state["running"] = True
+    algo_state["symbol"] = req.symbol
+    algo_state["timeframe"] = req.timeframe
+    algo_state["volume"] = req.volume
+    algo_state["strategy_name"] = current_strategy.get("name", "Unknown")
+    algo_state["signals"] = []
+    algo_state["trades_placed"] = 0
+    algo_state["in_position"] = False
+    algo_state["position_ticket"] = None
+
+    algo_thread = threading.Thread(
+        target=_algo_loop,
+        args=(current_strategy, req.symbol, req.timeframe, req.volume),
+        daemon=True,
+    )
+    algo_thread.start()
+
+    return {"success": True, "message": f"Algo started on {req.symbol}"}
+
+
+@app.post("/api/algo/stop")
+def algo_stop():
+    if not algo_state["running"]:
+        raise HTTPException(status_code=400, detail="Algo not running")
+    algo_stop_event.set()
+    algo_state["running"] = False
+    return {"success": True, "message": "Algo stop requested"}
+
+
+@app.get("/api/algo/status")
+def algo_status():
+    return {
+        "running": algo_state["running"],
+        "symbol": algo_state["symbol"],
+        "timeframe": algo_state["timeframe"],
+        "strategy_name": algo_state["strategy_name"],
+        "volume": algo_state["volume"],
+        "in_position": algo_state["in_position"],
+        "position_ticket": algo_state["position_ticket"],
+        "trades_placed": algo_state["trades_placed"],
+        "signals": algo_state["signals"][-20:],
+    }
+
+
 @app.get("/api/health")
 def health():
     return {
@@ -522,4 +729,111 @@ def health():
         "mt5_connected": connector is not None and connector.is_connected if connector else False,
         "has_data": historical_data is not None,
         "has_strategy": current_strategy is not None,
+        "algo_running": algo_state["running"],
     }
+
+
+# ──────────────────────────────────────
+# LIVE STREAMING (WebSocket)
+# ──────────────────────────────────────
+
+mt5_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="mt5ws")
+
+
+@app.websocket("/api/ws/live")
+async def ws_live(ws: WebSocket):
+    await ws.accept()
+    loop = asyncio.get_event_loop()
+
+    try:
+        # Wait for subscription message
+        init_msg = await asyncio.wait_for(ws.receive_json(), timeout=10)
+        subscribed_symbol = init_msg.get("symbol", "EURUSDm")
+        subscribed_timeframe = init_msg.get("timeframe", "1m")
+
+        if not connector or not connector.is_connected:
+            await ws.send_json({"type": "error", "message": "MT5 not connected"})
+            await ws.close()
+            return
+
+        await loop.run_in_executor(mt5_executor, connector.select_symbol, subscribed_symbol)
+
+        tick_counter = 0
+        while True:
+            tick_counter += 1
+
+            # Check for incoming messages (non-blocking)
+            try:
+                msg = await asyncio.wait_for(ws.receive_json(), timeout=0.01)
+                if msg.get("action") == "unsubscribe":
+                    break
+                if msg.get("symbol"):
+                    subscribed_symbol = msg["symbol"]
+                    await loop.run_in_executor(mt5_executor, connector.select_symbol, subscribed_symbol)
+                if msg.get("timeframe"):
+                    subscribed_timeframe = msg["timeframe"]
+            except asyncio.TimeoutError:
+                pass
+
+            # Price tick — every iteration (~500ms)
+            try:
+                price = await loop.run_in_executor(
+                    mt5_executor, connector.get_symbol_price, subscribed_symbol
+                )
+                await ws.send_json({"type": "price", **sanitize_for_json(price)})
+            except Exception:
+                pass
+
+            # Positions — every 2nd tick (~1s)
+            if tick_counter % 2 == 0:
+                try:
+                    positions = await loop.run_in_executor(
+                        mt5_executor, connector.get_positions
+                    )
+                    await ws.send_json({"type": "positions", "data": sanitize_for_json(positions)})
+                except Exception:
+                    pass
+
+            # Account info — every 4th tick (~2s)
+            if tick_counter % 4 == 0:
+                try:
+                    account = await loop.run_in_executor(
+                        mt5_executor, connector.get_account_info
+                    )
+                    await ws.send_json({"type": "account", **sanitize_for_json(account)})
+                except Exception:
+                    pass
+
+            # Candle + indicators — every 10th tick (~5s)
+            if tick_counter % 10 == 0:
+                try:
+                    from backend.core.indicators import add_all_indicators, get_indicator_snapshot
+                    df = await loop.run_in_executor(
+                        mt5_executor, connector.get_history,
+                        subscribed_symbol, subscribed_timeframe, 50
+                    )
+                    df = add_all_indicators(df)
+                    last = df.iloc[-1]
+                    candle_data = {
+                        "time": str(df.index[-1]),
+                        "open": float(last["open"]),
+                        "high": float(last["high"]),
+                        "low": float(last["low"]),
+                        "close": float(last["close"]),
+                        "volume": float(last["volume"]),
+                    }
+                    indicators = get_indicator_snapshot(df, -1)
+                    await ws.send_json({
+                        "type": "candle",
+                        **sanitize_for_json(candle_data),
+                        "indicators": sanitize_for_json(indicators),
+                    })
+                except Exception:
+                    pass
+
+            await asyncio.sleep(0.5)
+
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass

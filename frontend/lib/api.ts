@@ -192,6 +192,33 @@ export const api = {
       ),
   },
 
+  algo: {
+    start: (symbol: string, timeframe: string, volume: number, strategyId?: string) =>
+      request<{ success: boolean; message: string }>("/api/algo/start", {
+        method: "POST",
+        body: JSON.stringify({
+          symbol,
+          timeframe,
+          volume,
+          ...(strategyId ? { strategy_id: strategyId } : {}),
+        }),
+      }),
+    stop: () =>
+      request<{ success: boolean; message: string }>("/api/algo/stop", { method: "POST" }),
+    status: () =>
+      request<{
+        running: boolean;
+        symbol: string | null;
+        timeframe: string;
+        strategy_name: string | null;
+        volume: number;
+        in_position: boolean;
+        position_ticket: number | null;
+        trades_placed: number;
+        signals: Array<{ time: string; action: string; detail: string }>;
+      }>("/api/algo/status"),
+  },
+
   tutor: {
     lesson: (topic: string, level: string, instruments: string[]) =>
       request<{ lesson: string }>("/api/tutor/lesson", {
