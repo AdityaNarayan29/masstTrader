@@ -447,7 +447,7 @@ export default function LivePage() {
               </CardDescription>
             </div>
             {algo?.running && (
-              <Badge className="bg-green-600 text-white animate-pulse">
+              <Badge className="bg-primary text-primary-foreground animate-pulse">
                 RUNNING
               </Badge>
             )}
@@ -488,7 +488,6 @@ export default function LivePage() {
               <Button
                 onClick={handleAlgoStart}
                 disabled={algoLoading}
-                className="bg-green-600 hover:bg-green-700"
               >
                 {algoLoading ? "Starting..." : "Start Algo Trading"}
               </Button>
@@ -562,7 +561,7 @@ export default function LivePage() {
                       <p className="text-xs font-semibold uppercase text-muted-foreground">Entry Conditions</p>
                       <Badge
                         variant={algo.entry_conditions!.every(c => c.passed) ? "default" : "secondary"}
-                        className={`text-[10px] ${algo.entry_conditions!.every(c => c.passed) ? "bg-green-600" : ""}`}
+                        className="text-[10px]"
                       >
                         {algo.entry_conditions!.filter(c => c.passed).length}/{algo.entry_conditions!.length}
                       </Badge>

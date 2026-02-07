@@ -71,10 +71,10 @@ export default function Sidebar() {
   return (
     <TooltipProvider>
       <aside className="w-56 border-r border-border flex flex-col bg-sidebar">
-        <div className="p-4">
+        <Link href="/" className="block p-4 hover:bg-sidebar-accent/50 transition-colors">
           <h1 className="text-lg font-bold tracking-tight text-sidebar-foreground">MasstTrader</h1>
           <p className="text-xs text-muted-foreground mt-0.5">AI Trading Platform</p>
-        </div>
+        </Link>
 
         <Separator />
 
