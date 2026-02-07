@@ -85,7 +85,9 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
   const [error, setError] = useState("");
 
   const paramsRef = useRef({ symbol, timeframe });
-  paramsRef.current = { symbol, timeframe };
+  useEffect(() => {
+    paramsRef.current = { symbol, timeframe };
+  }, [symbol, timeframe]);
 
   const disconnect = useCallback(() => {
     if (esRef.current) {
