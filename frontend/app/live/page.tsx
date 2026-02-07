@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+
 import {
   Select,
   SelectContent,
@@ -408,7 +408,7 @@ export default function LivePage() {
         </Card>
       )}
 
-      <Separator />
+
 
       {/* Indicators */}
       {stream.candle?.indicators && (
@@ -434,7 +434,7 @@ export default function LivePage() {
         </Card>
       )}
 
-      <Separator />
+
 
       {/* Algo Trading */}
       <Card>

@@ -240,6 +240,13 @@ Rules:
 - Use analogies and visual descriptions
 - Keep explanations concise but complete
 
+Formatting rules (STRICT):
+- Structure your response using bullet points and short pointers, NOT long paragraphs
+- Use **bold** for key terms, important concepts, and critical values
+- Use markdown headers (##, ###) to organize sections
+- Each bullet point should be 1-2 sentences max
+- Use numbered lists for sequential steps or processes
+
 If the trader asks about a concept, explain it using THEIR context."""
 
 

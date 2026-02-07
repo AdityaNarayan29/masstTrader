@@ -20,7 +20,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Loader2, Eye, EyeOff, LogOut } from "lucide-react";
 
 interface AccountInfo {
@@ -480,7 +479,6 @@ export default function ConnectionPage() {
 
             {positions.length > 0 && (
               <div className="mt-4 space-y-3">
-                <Separator />
                 {positions.map((pos) => (
                   <div
                     key={pos.ticket}
@@ -592,7 +590,6 @@ export default function ConnectionPage() {
 
             {trades.length > 0 && (
               <div className="mt-4 space-y-3">
-                <Separator />
                 <div className="space-y-2">
                   {trades.map((trade, index) => (
                     <div
@@ -691,8 +688,6 @@ export default function ConnectionPage() {
           </CardContent>
         </Card>
       )}
-
-      <Separator />
 
       {/* Demo Mode Card */}
       <Card className="border-dashed">

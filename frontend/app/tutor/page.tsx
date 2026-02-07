@@ -24,6 +24,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2 } from "lucide-react";
 
 const QUICK_TOPICS = [
   "What is RSI and how to use it",
@@ -237,7 +238,12 @@ export default function TutorPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {lesson ? (
+              {loading ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-3">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <p className="text-sm text-muted-foreground">Generating your lesson...</p>
+                </div>
+              ) : lesson ? (
                 <div className="prose prose-sm prose-invert dark:prose-invert max-w-none text-sm text-muted-foreground">
                   <ReactMarkdown>{lesson}</ReactMarkdown>
                 </div>
