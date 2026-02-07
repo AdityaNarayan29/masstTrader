@@ -15,7 +15,7 @@ const FEATURES = [
   {
     href: "/connection",
     title: "MT5 Connection",
-    desc: "Connect to your MetaTrader 5 broker account directly from the browser. Load real market data with technical indicators.",
+    desc: "Connect to your MetaTrader 5 broker account directly from the browser. View positions, trade history, and account metrics.",
     badge: "Setup",
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

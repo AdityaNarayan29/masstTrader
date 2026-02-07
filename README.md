@@ -8,7 +8,7 @@ MasstTrader connects to MetaTrader 5, lets you describe trading strategies in pl
 
 | Feature | Description |
 |---------|-------------|
-| **MT5 Connection** | Connect to any MetaTrader 5 broker account (Exness, Deriv, etc.) directly from the browser |
+| **MT5 Connection** | Connect to any MetaTrader 5 broker account (Exness, Deriv, etc.) directly from the browser. View positions, trade history, and account metrics |
 | **Live Dashboard** | Real-time streaming prices, candlestick charts with indicator overlays (EMA, SMA, Bollinger Bands), open positions with live P/L, and account metrics via WebSocket |
 | **AI Strategy Builder** | Describe a strategy in natural language ("Buy when RSI < 30 and MACD crosses above signal") — AI converts it to structured, executable rules |
 | **Backtester** | Test strategies against real MT5 historical data with configurable timeframe, bars, balance, and risk. Candlestick chart with trade entry/exit markers, equity curve, and per-trade P/L breakdown |
@@ -16,6 +16,8 @@ MasstTrader connects to MetaTrader 5, lets you describe trading strategies in pl
 | **Algo Trading** | Automatically execute trades based on your strategy rules with live condition monitoring, indicator tracking, and signal logging |
 | **AI Tutor** | Personalized trading lessons based on your experience level and the instruments you trade, with follow-up chat |
 | **Strategy Persistence** | Save, load, update, and delete strategies and backtests in a SQLite database |
+| **Light/Dark Theme** | Full light and dark theme support with emerald green accent, toggle from sidebar |
+| **Symbol Combobox** | Searchable symbol picker with grouped presets (Forex, Metals, Crypto, Indices) and custom input |
 
 ## Architecture
 
@@ -38,7 +40,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system diagram, data flow, a
 
 **Frontend**
 - Next.js 16 + TypeScript
-- Tailwind CSS v4 + shadcn/ui
+- Tailwind CSS v4 + shadcn/ui + next-themes
 - lightweight-charts (TradingView) for candlestick charts
 - Recharts for equity curves and analytics
 - Deployed on Vercel
@@ -70,7 +72,9 @@ masstTrader/
 │   │   ├── analyzer/           # AI trade analyzer
 │   │   └── tutor/              # AI tutor
 │   ├── components/
-│   │   └── live-chart.tsx      # TradingView candlestick chart
+│   │   ├── live-chart.tsx      # TradingView candlestick chart
+│   │   ├── symbol-combobox.tsx # Searchable symbol picker
+│   │   └── theme-provider.tsx  # Light/dark theme (next-themes)
 │   ├── hooks/
 │   │   └── use-live-stream.ts  # WebSocket hook
 │   ├── lib/
