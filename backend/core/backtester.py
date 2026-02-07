@@ -102,7 +102,11 @@ def _resolve_column(indicator: str, parameter: str) -> str:
     if key in mapping:
         return mapping[key]
 
-    # Try indicator as a direct column name
+    # Raw OHLCV column names
+    if indicator in ("open", "high", "low", "close", "volume"):
+        return indicator
+
+    # Try indicator as a direct column name (e.g., "EMA_50")
     if "_" in indicator:
         return indicator
 
