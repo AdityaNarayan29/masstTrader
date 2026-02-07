@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 import { useLiveStream } from "@/hooks/use-live-stream";
 import { LiveChart } from "@/components/live-chart";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -81,6 +82,7 @@ export default function LivePage() {
   const [algoVolume, setAlgoVolume] = useState(0.01);
   const [algo, setAlgo] = useState<AlgoStatus | null>(null);
   const [algoLoading, setAlgoLoading] = useState(false);
+  const [algoStopping, setAlgoStopping] = useState(false);
   const algoInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stream = useLiveStream(symbol, timeframe);
@@ -113,12 +115,15 @@ export default function LivePage() {
   };
 
   const handleAlgoStop = async () => {
+    setAlgoStopping(true);
     try {
       await api.algo.stop();
       const status = await api.algo.status();
       setAlgo(status);
     } catch {
       // ignore
+    } finally {
+      setAlgoStopping(false);
     }
   };
 
@@ -229,6 +234,9 @@ export default function LivePage() {
                   loadingChart || stream.status === "connecting" || !symbol
                 }
               >
+                {(loadingChart || stream.status === "connecting") && (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                )}
                 {loadingChart || stream.status === "connecting"
                   ? "Connecting..."
                   : "Start Live Stream"}
@@ -492,6 +500,7 @@ export default function LivePage() {
                 onClick={handleAlgoStart}
                 disabled={algoLoading}
               >
+                {algoLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                 {algoLoading ? "Starting..." : "Start Algo Trading"}
               </Button>
             </div>
@@ -527,8 +536,10 @@ export default function LivePage() {
                   variant="destructive"
                   size="sm"
                   onClick={handleAlgoStop}
+                  disabled={algoStopping}
                 >
-                  Stop Algo
+                  {algoStopping && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
+                  {algoStopping ? "Stopping..." : "Stop Algo"}
                 </Button>
               </div>
 

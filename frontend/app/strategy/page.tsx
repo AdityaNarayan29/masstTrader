@@ -78,6 +78,8 @@ export default function StrategyPage() {
   const [savedStrategies, setSavedStrategies] = useState<StrategySummary[]>([]);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     api.strategies.list().then(setSavedStrategies).catch(() => {});
@@ -123,6 +125,7 @@ export default function StrategyPage() {
 
   const handleLoad = async (id: string) => {
     setError("");
+    setLoadingId(id);
     try {
       const s = await api.strategies.load(id);
       const loaded = s as unknown as Strategy;
@@ -132,11 +135,14 @@ export default function StrategyPage() {
       setEditingId(loaded.id || id);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load strategy");
+    } finally {
+      setLoadingId(null);
     }
   };
 
   const handleDelete = async (id: string) => {
     setError("");
+    setDeletingId(id);
     try {
       await api.strategies.delete(id);
       if (editingId === id) {
@@ -146,6 +152,8 @@ export default function StrategyPage() {
       refreshList();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to delete strategy");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -207,17 +215,27 @@ export default function StrategyPage() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleLoad(s.id)}
+                      disabled={loadingId === s.id || deletingId === s.id}
                     >
-                      <Download className="h-3.5 w-3.5 mr-1" />
-                      Load
+                      {loadingId === s.id ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <Download className="h-3.5 w-3.5 mr-1" />
+                      )}
+                      {loadingId === s.id ? "Loading..." : "Load"}
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
                       className="text-destructive hover:text-destructive"
                       onClick={() => handleDelete(s.id)}
+                      disabled={deletingId === s.id || loadingId === s.id}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      {deletingId === s.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
                     </Button>
                   </div>
                 </div>
@@ -264,6 +282,7 @@ export default function StrategyPage() {
                 onClick={handleParse}
                 disabled={loading || !description.trim()}
               >
+                {loading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                 {loading ? "AI is parsing..." : "Parse Strategy with AI"}
               </Button>
             </div>

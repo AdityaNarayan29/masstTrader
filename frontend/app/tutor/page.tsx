@@ -60,6 +60,7 @@ export default function TutorPage() {
   const [lesson, setLesson] = useState("");
   const [error, setError] = useState("");
   const [chatInput, setChatInput] = useState("");
+  const [chatSending, setChatSending] = useState(false);
   const [chatHistory, setChatHistory] = useState<
     Array<{ role: string; content: string }>
   >([]);
@@ -94,6 +95,7 @@ export default function TutorPage() {
     if (!chatInput.trim()) return;
     const question = chatInput;
     setChatInput("");
+    setChatSending(true);
     setChatHistory((prev) => [...prev, { role: "user", content: question }]);
     try {
       const res = await api.tutor.lesson(question, level, selectedInstruments);
@@ -103,6 +105,8 @@ export default function TutorPage() {
         ...prev,
         { role: "ai", content: "Sorry, something went wrong. Try again." },
       ]);
+    } finally {
+      setChatSending(false);
     }
   };
 
@@ -312,19 +316,26 @@ export default function TutorPage() {
               <Separator />
 
               {/* Chat Input */}
+              {chatSending && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  AI Tutor is thinking...
+                </div>
+              )}
               <div className="flex gap-2">
                 <Input
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   placeholder="Ask anything about trading..."
                   onKeyDown={(e) => e.key === "Enter" && handleChat()}
+                  disabled={chatSending}
                 />
                 <Button
                   variant="secondary"
                   onClick={handleChat}
-                  disabled={!chatInput.trim()}
+                  disabled={!chatInput.trim() || chatSending}
                 >
-                  Ask
+                  {chatSending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Ask"}
                 </Button>
               </div>
             </CardContent>

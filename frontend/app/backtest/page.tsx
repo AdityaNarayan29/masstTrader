@@ -21,6 +21,7 @@ import {
   type CandlestickData,
   type Time,
 } from "lightweight-charts";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -395,6 +396,7 @@ export default function BacktestPage() {
               />
             </div>
             <Button onClick={handleRun} disabled={loading}>
+              {loading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               {loading ? "Running..." : "Run Backtest"}
             </Button>
           </div>
@@ -678,6 +680,7 @@ export default function BacktestPage() {
                 onClick={handleExplain}
                 disabled={explaining}
               >
+                {explaining && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
                 {explaining ? "Analyzing..." : "Get AI Explanation"}
               </Button>
             </CardHeader>
