@@ -41,6 +41,15 @@ interface HistoricalCandle {
   volume: number;
 }
 
+interface AlgoCondition {
+  description: string;
+  indicator: string;
+  parameter: string;
+  operator: string;
+  value: number | string;
+  passed: boolean;
+}
+
 interface AlgoStatus {
   running: boolean;
   symbol: string | null;
@@ -51,6 +60,11 @@ interface AlgoStatus {
   position_ticket: number | null;
   trades_placed: number;
   signals: Array<{ time: string; action: string; detail: string }>;
+  current_price: { bid: number; ask: number; spread: number } | null;
+  indicators: Record<string, number | string | null>;
+  entry_conditions: AlgoCondition[];
+  exit_conditions: AlgoCondition[];
+  last_check: string | null;
 }
 
 export default function LivePage() {
@@ -481,6 +495,7 @@ export default function LivePage() {
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Status bar */}
               <div className="flex flex-wrap gap-4 items-center">
                 <div className="text-sm">
                   <span className="text-muted-foreground">Strategy:</span>{" "}
@@ -501,6 +516,11 @@ export default function LivePage() {
                 {algo.in_position && (
                   <Badge variant="default">In Position #{algo.position_ticket}</Badge>
                 )}
+                {algo.last_check && (
+                  <span className="text-xs text-muted-foreground">
+                    Last check: {new Date(algo.last_check).toLocaleTimeString()}
+                  </span>
+                )}
                 <Button
                   variant="destructive"
                   size="sm"
@@ -510,32 +530,128 @@ export default function LivePage() {
                 </Button>
               </div>
 
-              {/* Signal Log */}
-              {algo.signals.length > 0 && (
-                <div className="rounded-md border max-h-60 overflow-y-auto">
-                  <div className="p-3 space-y-1">
-                    {[...algo.signals].reverse().map((sig, i) => (
-                      <div key={i} className="flex items-start gap-2 text-xs">
-                        <span className="text-muted-foreground font-mono shrink-0">
-                          {new Date(sig.time).toLocaleTimeString()}
+              {/* Current Price */}
+              {algo.current_price && (
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-lg border border-green-500/20 p-3 text-center">
+                    <p className="text-[10px] text-muted-foreground uppercase">Bid</p>
+                    <p className="text-lg font-mono font-bold text-green-500">
+                      {algo.current_price.bid.toFixed(5)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border p-3 text-center">
+                    <p className="text-[10px] text-muted-foreground uppercase">Spread</p>
+                    <p className="text-lg font-mono font-bold">
+                      {(algo.current_price.spread * 100000).toFixed(1)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-red-500/20 p-3 text-center">
+                    <p className="text-[10px] text-muted-foreground uppercase">Ask</p>
+                    <p className="text-lg font-mono font-bold text-red-500">
+                      {algo.current_price.ask.toFixed(5)}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Entry & Exit Conditions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {(algo.entry_conditions?.length ?? 0) > 0 && (
+                  <div className="rounded-lg border p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">Entry Conditions</p>
+                      <Badge
+                        variant={algo.entry_conditions!.every(c => c.passed) ? "default" : "secondary"}
+                        className={`text-[10px] ${algo.entry_conditions!.every(c => c.passed) ? "bg-green-600" : ""}`}
+                      >
+                        {algo.entry_conditions!.filter(c => c.passed).length}/{algo.entry_conditions!.length}
+                      </Badge>
+                    </div>
+                    {algo.entry_conditions!.map((c, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        <span className={`shrink-0 text-base ${c.passed ? "text-green-500" : "text-red-500"}`}>
+                          {c.passed ? "\u2713" : "\u2717"}
                         </span>
-                        <Badge
-                          variant={
-                            sig.action === "buy"
-                              ? "default"
-                              : sig.action === "close" || sig.action === "closed"
-                                ? "secondary"
-                                : sig.action === "error"
-                                  ? "destructive"
-                                  : "outline"
-                          }
-                          className="text-[10px] shrink-0"
-                        >
-                          {sig.action.toUpperCase()}
-                        </Badge>
-                        <span className="text-muted-foreground">{sig.detail}</span>
+                        <span className="font-mono">
+                          {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""}{" "}
+                          {c.operator} {String(c.value)}
+                        </span>
                       </div>
                     ))}
+                  </div>
+                )}
+                {(algo.exit_conditions?.length ?? 0) > 0 && (
+                  <div className="rounded-lg border p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">Exit Conditions</p>
+                      <Badge
+                        variant={algo.exit_conditions!.every(c => c.passed) ? "default" : "secondary"}
+                        className={`text-[10px] ${algo.exit_conditions!.every(c => c.passed) ? "bg-red-600" : ""}`}
+                      >
+                        {algo.exit_conditions!.filter(c => c.passed).length}/{algo.exit_conditions!.length}
+                      </Badge>
+                    </div>
+                    {algo.exit_conditions!.map((c, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        <span className={`shrink-0 text-base ${c.passed ? "text-green-500" : "text-red-500"}`}>
+                          {c.passed ? "\u2713" : "\u2717"}
+                        </span>
+                        <span className="font-mono">
+                          {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""}{" "}
+                          {c.operator} {String(c.value)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Live Indicators */}
+              {algo.indicators && Object.keys(algo.indicators).length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase text-muted-foreground">Live Indicators</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {Object.entries(algo.indicators).map(([key, val]) => (
+                      <div key={key} className="rounded-lg border p-2">
+                        <p className="text-[10px] text-muted-foreground font-mono truncate">{key}</p>
+                        <p className="text-sm font-semibold font-mono">
+                          {typeof val === "number" ? val.toFixed(4) : val == null ? "---" : String(val)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Signal Log */}
+              {algo.signals.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase text-muted-foreground mb-2">Signal Log</p>
+                  <div className="rounded-md border max-h-48 overflow-y-auto">
+                    <div className="p-3 space-y-1">
+                      {[...algo.signals].reverse().map((sig, i) => (
+                        <div key={i} className="flex items-start gap-2 text-xs">
+                          <span className="text-muted-foreground font-mono shrink-0">
+                            {new Date(sig.time).toLocaleTimeString()}
+                          </span>
+                          <Badge
+                            variant={
+                              sig.action === "buy"
+                                ? "default"
+                                : sig.action === "close" || sig.action === "closed"
+                                  ? "secondary"
+                                  : sig.action === "error"
+                                    ? "destructive"
+                                    : "outline"
+                            }
+                            className="text-[10px] shrink-0"
+                          >
+                            {sig.action.toUpperCase()}
+                          </Badge>
+                          <span className="text-muted-foreground">{sig.detail}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}

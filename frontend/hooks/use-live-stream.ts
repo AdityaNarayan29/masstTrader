@@ -101,7 +101,10 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
     };
 
     ws.onerror = () => {
-      setError("WebSocket connection failed");
+      setError(
+        `WebSocket connection failed — cannot reach ${WS_BASE}/api/ws/live. ` +
+        `Make sure the backend is running and the WS endpoint is deployed.`
+      );
       setStatus("error");
     };
 

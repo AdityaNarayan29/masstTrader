@@ -216,6 +216,17 @@ export const api = {
         position_ticket: number | null;
         trades_placed: number;
         signals: Array<{ time: string; action: string; detail: string }>;
+        current_price: { bid: number; ask: number; spread: number } | null;
+        indicators: Record<string, number | string | null>;
+        entry_conditions: Array<{
+          description: string; indicator: string; parameter: string;
+          operator: string; value: number | string; passed: boolean;
+        }>;
+        exit_conditions: Array<{
+          description: string; indicator: string; parameter: string;
+          operator: string; value: number | string; passed: boolean;
+        }>;
+        last_check: string | null;
       }>("/api/algo/status"),
   },
 

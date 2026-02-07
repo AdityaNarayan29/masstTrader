@@ -63,6 +63,13 @@ algo_state = {
     "trades_placed": 0,
     "in_position": False,
     "position_ticket": None,
+    # Live market data (updated each loop iteration)
+    "current_price": None,           # {bid, ask, spread}
+    "indicators": {},                # latest indicator snapshot
+    "entry_conditions": [],          # conditions with pass/fail status
+    "exit_conditions": [],           # conditions with pass/fail status
+    "last_check": None,              # ISO timestamp of last evaluation
+    "strategy_rules": None,          # the rule being used
 }
 algo_thread = None
 algo_stop_event = threading.Event()
@@ -417,7 +424,7 @@ def load_strategy_endpoint(strategy_id: str):
 
 @app.post("/api/backtest/run")
 def run_backtest_endpoint(req: BacktestRequest):
-    global backtest_results, current_strategy
+    global backtest_results, current_strategy, historical_data
 
     # If strategy_id provided, load from DB
     if req.strategy_id:
@@ -428,8 +435,20 @@ def run_backtest_endpoint(req: BacktestRequest):
 
     if not current_strategy:
         raise HTTPException(status_code=400, detail="No strategy loaded. Parse one first.")
-    if historical_data is None:
-        # Auto-load demo data so backtest works without a separate step
+
+    # Fetch real MT5 data if connected, otherwise fall back to demo
+    if connector and connector.is_connected:
+        try:
+            from backend.core.indicators import add_all_indicators
+            bt_symbol = current_strategy.get("symbol", "EURUSDm")
+            connector.select_symbol(bt_symbol)
+            df_fresh = connector.get_history(bt_symbol, "5m", 2000)
+            df_fresh = add_all_indicators(df_fresh)
+            historical_data = df_fresh
+        except Exception:
+            if historical_data is None:
+                _load_demo_data()
+    elif historical_data is None:
         _load_demo_data()
 
     try:
@@ -563,9 +582,9 @@ def _add_signal(action: str, detail: str):
 
 def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
     """Background thread: monitors market and trades based on strategy rules."""
-    from backend.core.indicators import add_all_indicators
+    from backend.core.indicators import add_all_indicators, get_indicator_snapshot
     from backend.core.backtester import evaluate_condition
-    import time as _time
+    from datetime import datetime, timezone
 
     rules = strategy.get("rules", [])
     if not rules:
@@ -578,33 +597,90 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
     exit_conditions = rule.get("exit_conditions", [])
     sl_pips = rule.get("stop_loss_pips")
     tp_pips = rule.get("take_profit_pips")
+    algo_state["strategy_rules"] = rule
 
     connector.select_symbol(symbol)
     _add_signal("start", f"Algo started: {symbol} / {timeframe} / vol={volume}")
 
+    price_info = None
+    check_count = 0
+
     while not algo_stop_event.is_set():
         try:
+            check_count += 1
+
+            # Get current price
+            try:
+                price_info = connector.get_symbol_price(symbol)
+                algo_state["current_price"] = sanitize_for_json({
+                    "bid": price_info["bid"],
+                    "ask": price_info["ask"],
+                    "spread": price_info["ask"] - price_info["bid"],
+                })
+            except Exception as e:
+                _add_signal("error", f"Price fetch failed: {e}")
+                algo_stop_event.wait(15)
+                continue
+
             # Fetch latest candles + indicators
             df = connector.get_history(symbol, timeframe, 100)
             df = add_all_indicators(df)
             df = df.dropna().reset_index()
 
             if len(df) < 2:
-                _time.sleep(10)
+                algo_stop_event.wait(10)
                 continue
 
             row = df.iloc[-1]
             prev_row = df.iloc[-2]
 
+            # Update indicator snapshot
+            algo_state["indicators"] = sanitize_for_json(
+                get_indicator_snapshot(df, -1)
+            )
+            algo_state["last_check"] = datetime.now(timezone.utc).isoformat()
+
+            # Evaluate each entry condition individually and store results
+            entry_results = []
+            for c in entry_conditions:
+                passed = evaluate_condition(row, prev_row, c)
+                entry_results.append({
+                    "description": c.get("description", ""),
+                    "indicator": c.get("indicator", ""),
+                    "parameter": c.get("parameter", ""),
+                    "operator": c.get("operator", ""),
+                    "value": c.get("value"),
+                    "passed": passed,
+                })
+            algo_state["entry_conditions"] = entry_results
+
+            # Evaluate each exit condition individually
+            exit_results = []
+            for c in exit_conditions:
+                passed = evaluate_condition(row, prev_row, c)
+                exit_results.append({
+                    "description": c.get("description", ""),
+                    "indicator": c.get("indicator", ""),
+                    "parameter": c.get("parameter", ""),
+                    "operator": c.get("operator", ""),
+                    "value": c.get("value"),
+                    "passed": passed,
+                })
+            algo_state["exit_conditions"] = exit_results
+
+            # Log periodic check so user sees the algo is alive
+            entry_pass = sum(1 for r in entry_results if r["passed"])
+            entry_total = len(entry_results)
+            bid = price_info["bid"]
+            if check_count % 4 == 1:  # every ~60s
+                pos_status = "IN_POSITION" if algo_state["in_position"] else "WATCHING"
+                _add_signal("check", f"{pos_status} | bid={bid:.5f} | entry {entry_pass}/{entry_total}")
+
             if not algo_state["in_position"]:
-                # Check entry conditions
-                all_entry = all(
-                    evaluate_condition(row, prev_row, c) for c in entry_conditions
-                )
+                # Check if ALL entry conditions are met
+                all_entry = all(r["passed"] for r in entry_results)
                 if all_entry and len(entry_conditions) > 0:
-                    # Place buy trade
                     try:
-                        price_info = connector.get_symbol_price(symbol)
                         result = connector.place_trade(
                             symbol=symbol,
                             trade_type="buy",
@@ -623,22 +699,19 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                         _add_signal("error", f"Trade error: {str(e)}")
             else:
                 # Check exit conditions
-                all_exit = exit_conditions and all(
-                    evaluate_condition(row, prev_row, c) for c in exit_conditions
-                )
+                all_exit = exit_results and all(r["passed"] for r in exit_results)
                 if all_exit:
-                    # Close position
                     try:
                         ticket = algo_state["position_ticket"]
                         if ticket:
-                            result = connector.close_position(ticket)
+                            connector.close_position(ticket)
                             _add_signal("close", f"Exit signal — closed ticket {ticket}")
                         algo_state["in_position"] = False
                         algo_state["position_ticket"] = None
                     except Exception as e:
                         _add_signal("error", f"Close error: {str(e)}")
 
-                # Also check if position was closed externally (SL/TP hit)
+                # Check if position was closed externally (SL/TP hit)
                 if algo_state["in_position"]:
                     positions = connector.get_positions()
                     ticket = algo_state["position_ticket"]
@@ -651,8 +724,8 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
         except Exception as e:
             _add_signal("error", str(e))
 
-        # Wait before next check (30s for minute timeframes)
-        algo_stop_event.wait(30)
+        # Wait before next check
+        algo_stop_event.wait(15)
 
     _add_signal("stop", "Algo stopped")
     algo_state["running"] = False
@@ -719,6 +792,11 @@ def algo_status():
         "position_ticket": algo_state["position_ticket"],
         "trades_placed": algo_state["trades_placed"],
         "signals": algo_state["signals"][-20:],
+        "current_price": algo_state["current_price"],
+        "indicators": algo_state["indicators"],
+        "entry_conditions": algo_state["entry_conditions"],
+        "exit_conditions": algo_state["exit_conditions"],
+        "last_check": algo_state["last_check"],
     }
 
 
