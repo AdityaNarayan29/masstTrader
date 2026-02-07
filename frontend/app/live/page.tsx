@@ -652,7 +652,7 @@ export default function LivePage() {
                           </span>
                           <Badge
                             variant={
-                              sig.action === "buy"
+                              sig.action === "buy" || sig.action === "sell"
                                 ? "default"
                                 : sig.action === "close" || sig.action === "closed"
                                   ? "secondary"

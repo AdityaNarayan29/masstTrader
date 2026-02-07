@@ -625,179 +625,182 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
     from backend.core.backtester import evaluate_condition
     from datetime import datetime, timezone
 
-    rules = strategy.get("rules", [])
-    if not rules:
-        _add_signal("error", "Strategy has no rules")
-        algo_state["running"] = False
-        return
-
-    rule = rules[0]
-    entry_conditions = rule.get("entry_conditions", [])
-    exit_conditions = rule.get("exit_conditions", [])
-    sl_pips = rule.get("stop_loss_pips")
-    tp_pips = rule.get("take_profit_pips")
-    direction = rule.get("direction", "buy")  # "buy" or "sell"
-    algo_state["strategy_rules"] = rule
-
-    connector.select_symbol(symbol)
-
-    # Get pip value from symbol info (point * 10 for 5-digit/3-digit brokers)
     try:
-        sym_info = connector.get_symbol_info(symbol)
-        pip_value = sym_info["point"] * 10  # 0.00001 * 10 = 0.0001 for EUR, 0.001 * 10 = 0.01 for JPY
-    except Exception:
-        pip_value = 0.0001  # fallback for standard forex
+        rules = strategy.get("rules", [])
+        if not rules:
+            _add_signal("error", "Strategy has no rules")
+            return
 
-    _add_signal("start", f"Algo started: {symbol} / {timeframe} / vol={volume} / {direction} / pip={pip_value}")
+        rule = rules[0]
+        entry_conditions = rule.get("entry_conditions", [])
+        exit_conditions = rule.get("exit_conditions", [])
+        sl_pips = rule.get("stop_loss_pips")
+        tp_pips = rule.get("take_profit_pips")
+        direction = rule.get("direction", "buy")  # "buy" or "sell"
+        algo_state["strategy_rules"] = rule
 
-    price_info = None
-    check_count = 0
+        connector.select_symbol(symbol)
 
-    while not algo_stop_event.is_set():
+        # Get pip value from symbol info (point * 10 for 5-digit/3-digit brokers)
         try:
-            check_count += 1
+            sym_info = connector.get_symbol_info(symbol)
+            pip_value = sym_info["point"] * 10  # 0.00001 * 10 = 0.0001 for EUR, 0.001 * 10 = 0.01 for JPY
+        except Exception:
+            pip_value = 0.0001  # fallback for standard forex
 
-            # Check if MT5 connection is still alive
-            if connector is None or not connector.is_connected:
-                _add_signal("error", "MT5 connection lost — stopping algo")
-                algo_state["running"] = False
-                return
+        _add_signal("start", f"Algo started: {symbol} / {timeframe} / vol={volume} / {direction} / pip={pip_value}")
 
-            # Get current price
+        price_info = None
+        check_count = 0
+
+        while not algo_stop_event.is_set():
             try:
-                price_info = connector.get_symbol_price(symbol)
-                algo_state["current_price"] = sanitize_for_json({
-                    "bid": price_info["bid"],
-                    "ask": price_info["ask"],
-                    "spread": price_info["ask"] - price_info["bid"],
-                })
-            except Exception as e:
-                _add_signal("error", f"Price fetch failed: {e}")
-                algo_stop_event.wait(15)
-                continue
+                check_count += 1
 
-            # Fetch latest candles + indicators
-            df = connector.get_history(symbol, timeframe, 100)
-            df = add_all_indicators(df)
-            df = df.dropna().reset_index()
+                # Check if MT5 connection is still alive
+                if connector is None or not connector.is_connected:
+                    _add_signal("error", "MT5 connection lost — stopping algo")
+                    return
 
-            if len(df) < 2:
-                algo_stop_event.wait(10)
-                continue
+                # Get current price
+                try:
+                    price_info = connector.get_symbol_price(symbol)
+                    algo_state["current_price"] = sanitize_for_json({
+                        "bid": price_info["bid"],
+                        "ask": price_info["ask"],
+                        "spread": price_info["ask"] - price_info["bid"],
+                    })
+                except Exception as e:
+                    _add_signal("error", f"Price fetch failed: {e}")
+                    algo_stop_event.wait(15)
+                    continue
 
-            row = df.iloc[-1]
-            prev_row = df.iloc[-2]
+                # Fetch latest candles + indicators
+                df = connector.get_history(symbol, timeframe, 100)
+                df = add_all_indicators(df)
+                df = df.dropna().reset_index()
 
-            # Update indicator snapshot
-            algo_state["indicators"] = sanitize_for_json(
-                get_indicator_snapshot(df, -1)
-            )
-            algo_state["last_check"] = datetime.now(timezone.utc).isoformat()
+                if len(df) < 2:
+                    algo_stop_event.wait(10)
+                    continue
 
-            # Evaluate each entry condition individually and store results
-            entry_results = []
-            for c in entry_conditions:
-                passed = bool(evaluate_condition(row, prev_row, c))
-                entry_results.append({
-                    "description": c.get("description", ""),
-                    "indicator": c.get("indicator", ""),
-                    "parameter": c.get("parameter", ""),
-                    "operator": c.get("operator", ""),
-                    "value": c.get("value"),
-                    "passed": passed,
-                })
-            algo_state["entry_conditions"] = entry_results
+                row = df.iloc[-1]
+                prev_row = df.iloc[-2]
 
-            # Evaluate each exit condition individually
-            exit_results = []
-            for c in exit_conditions:
-                passed = bool(evaluate_condition(row, prev_row, c))
-                exit_results.append({
-                    "description": c.get("description", ""),
-                    "indicator": c.get("indicator", ""),
-                    "parameter": c.get("parameter", ""),
-                    "operator": c.get("operator", ""),
-                    "value": c.get("value"),
-                    "passed": passed,
-                })
-            algo_state["exit_conditions"] = exit_results
+                # Update indicator snapshot
+                algo_state["indicators"] = sanitize_for_json(
+                    get_indicator_snapshot(df, -1)
+                )
+                algo_state["last_check"] = datetime.now(timezone.utc).isoformat()
 
-            # Log periodic check so user sees the algo is alive
-            entry_pass = sum(1 for r in entry_results if r["passed"])
-            entry_total = len(entry_results)
-            bid = price_info["bid"]
-            if check_count % 4 == 1:  # every ~60s
-                pos_status = "IN_POSITION" if algo_state["in_position"] else "WATCHING"
-                _add_signal("check", f"{pos_status} | bid={bid:.5f} | entry {entry_pass}/{entry_total}")
+                # Evaluate each entry condition individually and store results
+                entry_results = []
+                for c in entry_conditions:
+                    passed = bool(evaluate_condition(row, prev_row, c))
+                    entry_results.append({
+                        "description": c.get("description", ""),
+                        "indicator": c.get("indicator", ""),
+                        "parameter": c.get("parameter", ""),
+                        "operator": c.get("operator", ""),
+                        "value": c.get("value"),
+                        "passed": passed,
+                    })
+                algo_state["entry_conditions"] = entry_results
 
-            if not algo_state["in_position"]:
-                # Check if ALL entry conditions are met
-                all_entry = all(r["passed"] for r in entry_results)
-                if all_entry and len(entry_conditions) > 0:
-                    try:
-                        # Calculate SL/TP based on direction
-                        if direction == "buy":
-                            entry_price = price_info["ask"]
-                            sl_price = entry_price - sl_pips * pip_value if sl_pips else None
-                            tp_price = entry_price + tp_pips * pip_value if tp_pips else None
-                        else:
-                            entry_price = price_info["bid"]
-                            sl_price = entry_price + sl_pips * pip_value if sl_pips else None
-                            tp_price = entry_price - tp_pips * pip_value if tp_pips else None
+                # Evaluate each exit condition individually
+                exit_results = []
+                for c in exit_conditions:
+                    passed = bool(evaluate_condition(row, prev_row, c))
+                    exit_results.append({
+                        "description": c.get("description", ""),
+                        "indicator": c.get("indicator", ""),
+                        "parameter": c.get("parameter", ""),
+                        "operator": c.get("operator", ""),
+                        "value": c.get("value"),
+                        "passed": passed,
+                    })
+                algo_state["exit_conditions"] = exit_results
 
-                        result = connector.place_trade(
-                            symbol=symbol,
-                            trade_type=direction,
-                            volume=volume,
-                            stop_loss=sl_price,
-                            take_profit=tp_price,
-                        )
-                        if result.get("success"):
-                            algo_state["in_position"] = True
-                            algo_state["position_ticket"] = result.get("order_id")
-                            algo_state["trades_placed"] += 1
-                            sl_str = f" SL={sl_price:.5f}" if sl_price else ""
-                            tp_str = f" TP={tp_price:.5f}" if tp_price else ""
-                            _add_signal(direction, f"Entry {direction.upper()} at {entry_price:.5f}{sl_str}{tp_str} | ticket={result.get('order_id')}")
-                        else:
-                            _add_signal("error", f"Trade failed: {result.get('message', 'unknown')}")
-                    except Exception as e:
-                        _add_signal("error", f"Trade error: {str(e)}")
-            else:
-                # Check exit conditions
-                all_exit = exit_results and all(r["passed"] for r in exit_results)
-                if all_exit:
-                    try:
-                        ticket = algo_state["position_ticket"]
-                        if ticket:
-                            close_result = connector.close_position(ticket)
-                            if close_result.get("success"):
-                                _add_signal("close", f"Exit signal — closed ticket {ticket}")
-                                algo_state["in_position"] = False
-                                algo_state["position_ticket"] = None
+                # Log periodic check so user sees the algo is alive
+                entry_pass = sum(1 for r in entry_results if r["passed"])
+                entry_total = len(entry_results)
+                bid = price_info["bid"]
+                if check_count % 4 == 1:  # every ~60s
+                    pos_status = "IN_POSITION" if algo_state["in_position"] else "WATCHING"
+                    _add_signal("check", f"{pos_status} | bid={bid:.5f} | entry {entry_pass}/{entry_total}")
+
+                if not algo_state["in_position"]:
+                    # Check if ALL entry conditions are met
+                    all_entry = all(r["passed"] for r in entry_results)
+                    if all_entry and len(entry_conditions) > 0:
+                        try:
+                            # Calculate SL/TP based on direction
+                            if direction == "buy":
+                                entry_price = price_info["ask"]
+                                sl_price = entry_price - sl_pips * pip_value if sl_pips else None
+                                tp_price = entry_price + tp_pips * pip_value if tp_pips else None
                             else:
-                                _add_signal("error", f"Close failed: {close_result.get('message', 'unknown')}")
-                    except Exception as e:
-                        _add_signal("error", f"Close error: {str(e)}")
+                                entry_price = price_info["bid"]
+                                sl_price = entry_price + sl_pips * pip_value if sl_pips else None
+                                tp_price = entry_price - tp_pips * pip_value if tp_pips else None
 
-                # Check if position was closed externally (SL/TP hit)
-                if algo_state["in_position"]:
-                    positions = connector.get_positions()
-                    ticket = algo_state["position_ticket"]
-                    still_open = any(p["ticket"] == ticket for p in positions)
-                    if not still_open:
-                        _add_signal("closed", f"Position {ticket} closed (SL/TP or manual)")
-                        algo_state["in_position"] = False
-                        algo_state["position_ticket"] = None
+                            result = connector.place_trade(
+                                symbol=symbol,
+                                trade_type=direction,
+                                volume=volume,
+                                stop_loss=sl_price,
+                                take_profit=tp_price,
+                            )
+                            if result.get("success"):
+                                algo_state["in_position"] = True
+                                algo_state["position_ticket"] = result.get("order_id")
+                                algo_state["trades_placed"] += 1
+                                sl_str = f" SL={sl_price:.5f}" if sl_price else ""
+                                tp_str = f" TP={tp_price:.5f}" if tp_price else ""
+                                _add_signal(direction, f"Entry {direction.upper()} at {entry_price:.5f}{sl_str}{tp_str} | ticket={result.get('order_id')}")
+                            else:
+                                _add_signal("error", f"Trade failed: {result.get('message', 'unknown')}")
+                        except Exception as e:
+                            _add_signal("error", f"Trade error: {str(e)}")
+                else:
+                    # Check exit conditions
+                    all_exit = exit_results and all(r["passed"] for r in exit_results)
+                    if all_exit:
+                        try:
+                            ticket = algo_state["position_ticket"]
+                            if ticket:
+                                close_result = connector.close_position(ticket)
+                                if close_result.get("success"):
+                                    _add_signal("close", f"Exit signal — closed ticket {ticket}")
+                                    algo_state["in_position"] = False
+                                    algo_state["position_ticket"] = None
+                                else:
+                                    _add_signal("error", f"Close failed: {close_result.get('message', 'unknown')}")
+                        except Exception as e:
+                            _add_signal("error", f"Close error: {str(e)}")
 
-        except Exception as e:
-            _add_signal("error", str(e))
+                    # Check if position was closed externally (SL/TP hit)
+                    if algo_state["in_position"]:
+                        positions = connector.get_positions()
+                        ticket = algo_state["position_ticket"]
+                        still_open = any(p["ticket"] == ticket for p in positions)
+                        if not still_open:
+                            _add_signal("closed", f"Position {ticket} closed (SL/TP or manual)")
+                            algo_state["in_position"] = False
+                            algo_state["position_ticket"] = None
 
-        # Wait before next check
-        algo_stop_event.wait(15)
+            except Exception as e:
+                _add_signal("error", str(e))
 
-    _add_signal("stop", "Algo stopped")
-    algo_state["running"] = False
+            # Wait before next check
+            algo_stop_event.wait(15)
+
+        _add_signal("stop", "Algo stopped")
+
+    except Exception as e:
+        _add_signal("error", f"Algo crashed: {str(e)}")
+    finally:
+        algo_state["running"] = False
 
 
 @app.post("/api/algo/start")
