@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://13.48.148.223:8008";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 async function request<T>(path: string, options?: RequestInit, timeoutMs = 30000): Promise<T> {
   const controller = new AbortController();

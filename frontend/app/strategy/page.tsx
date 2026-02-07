@@ -73,7 +73,6 @@ export default function StrategyPage() {
   const [loading, setLoading] = useState(false);
   const [strategy, setStrategy] = useState<Strategy | null>(null);
   const [error, setError] = useState("");
-  const [showJson, setShowJson] = useState(false);
 
   // Persistence state
   const [savedStrategies, setSavedStrategies] = useState<StrategySummary[]>([]);
@@ -416,23 +415,6 @@ export default function StrategyPage() {
             </Card>
           ))}
 
-          {/* Raw JSON Toggle */}
-          <Card>
-            <CardContent className="pt-6">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowJson(!showJson)}
-              >
-                {showJson ? "Hide" : "Show"} Raw JSON
-              </Button>
-              {showJson && (
-                <pre className="mt-3 rounded-md border bg-muted/50 p-4 text-xs overflow-x-auto max-h-80 overflow-y-auto">
-                  {JSON.stringify(strategy, null, 2)}
-                </pre>
-              )}
-            </CardContent>
-          </Card>
         </div>
       )}
     </div>
