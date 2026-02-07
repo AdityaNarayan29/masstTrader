@@ -10,6 +10,7 @@ import json
 import math
 import sys
 import os
+import threading
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -28,7 +29,7 @@ app = FastAPI(title="MasstTrader API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -98,18 +99,34 @@ class LessonRequest(BaseModel):
 @app.post("/api/mt5/connect")
 def mt5_connect(req: MT5LoginRequest):
     global connector
-    try:
-        from backend.services.mt5_connector import MT5Connector
-        connector = MT5Connector()
-        result = connector.connect(
-            login=req.login,
-            password=req.password,
-            server=req.server,
-            mt5_path=req.mt5_path,
-        )
-        return {"success": True, **result}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    result_box = [None]
+    error_box = [None]
+
+    def _connect():
+        try:
+            from backend.services.mt5_connector import MT5Connector
+            c = MT5Connector()
+            r = c.connect(
+                login=req.login,
+                password=req.password,
+                server=req.server,
+                mt5_path=req.mt5_path,
+            )
+            result_box[0] = (c, r)
+        except Exception as e:
+            error_box[0] = e
+
+    thread = threading.Thread(target=_connect)
+    thread.start()
+    thread.join(timeout=20)
+
+    if thread.is_alive():
+        raise HTTPException(status_code=408, detail="MT5 connection timed out after 20s — make sure MT5 terminal is running")
+    if error_box[0]:
+        raise HTTPException(status_code=400, detail=str(error_box[0]))
+
+    connector, result = result_box[0]
+    return {"success": True, **result}
 
 
 @app.post("/api/mt5/disconnect")

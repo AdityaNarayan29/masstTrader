@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Loader2, Eye, EyeOff } from "lucide-react";
 
 interface AccountInfo {
   login: number;
@@ -67,6 +68,9 @@ export default function ConnectionPage() {
   const [password, setPassword] = useState("");
   const [server, setServer] = useState("");
   const [mt5Path, setMt5Path] = useState("");
+
+  // Password visibility
+  const [showPassword, setShowPassword] = useState(false);
 
   // General state
   const [loading, setLoading] = useState(false);
@@ -228,13 +232,23 @@ export default function ConnectionPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Your MT5 password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Your MT5 password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="server">Server</Label>
@@ -262,6 +276,7 @@ export default function ConnectionPage() {
               onClick={handleConnect}
               disabled={loading || !login || !password || !server}
             >
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               {loading ? "Connecting..." : "Connect to MT5"}
             </Button>
           </div>
@@ -380,6 +395,7 @@ export default function ConnectionPage() {
                 />
               </div>
               <Button onClick={handleFetchData} disabled={loading}>
+                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                 {loading ? "Fetching..." : "Fetch Data"}
               </Button>
             </div>
@@ -410,6 +426,7 @@ export default function ConnectionPage() {
               onClick={handleFetchPositions}
               disabled={positionsLoading}
             >
+              {positionsLoading && <Loader2 className="h-4 w-4 animate-spin" />}
               {positionsLoading ? "Loading..." : "Refresh Positions"}
             </Button>
 
@@ -520,6 +537,7 @@ export default function ConnectionPage() {
                 onClick={handleFetchHistory}
                 disabled={tradesLoading}
               >
+                {tradesLoading && <Loader2 className="h-4 w-4 animate-spin" />}
                 {tradesLoading ? "Loading..." : "Load History"}
               </Button>
             </div>
@@ -647,6 +665,7 @@ export default function ConnectionPage() {
             onClick={handleLoadDemo}
             disabled={loading}
           >
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             {loading ? "Loading..." : "Load Demo Data"}
           </Button>
         </CardContent>
