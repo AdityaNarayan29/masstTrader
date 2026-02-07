@@ -43,31 +43,7 @@ interface HistoricalCandle {
   volume: number;
 }
 
-interface AlgoCondition {
-  description: string;
-  indicator: string;
-  parameter: string;
-  operator: string;
-  value: number | string;
-  passed: boolean;
-}
-
-interface AlgoStatus {
-  running: boolean;
-  symbol: string | null;
-  timeframe: string;
-  strategy_name: string | null;
-  volume: number;
-  in_position: boolean;
-  position_ticket: number | null;
-  trades_placed: number;
-  signals: Array<{ time: string; action: string; detail: string }>;
-  current_price: { bid: number; ask: number; spread: number } | null;
-  indicators: Record<string, number | string | null>;
-  entry_conditions: AlgoCondition[];
-  exit_conditions: AlgoCondition[];
-  last_check: string | null;
-}
+type AlgoStatus = import("@/hooks/use-live-stream").AlgoStatusData;
 
 export default function LivePage() {
   const [symbol, setSymbol] = useState("EURUSDm");
@@ -81,25 +57,29 @@ export default function LivePage() {
   const [strategies, setStrategies] = useState<Array<{ id: string; name: string; symbol: string }>>([]);
   const [algoStrategyId, setAlgoStrategyId] = useState("__current__");
   const [algoVolume, setAlgoVolume] = useState(0.01);
-  const [algo, setAlgo] = useState<AlgoStatus | null>(null);
+  const [polledAlgo, setPolledAlgo] = useState<AlgoStatus | null>(null);
   const [algoLoading, setAlgoLoading] = useState(false);
   const [algoStopping, setAlgoStopping] = useState(false);
   const algoInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stream = useLiveStream(symbol, timeframe);
 
+  // WS-streamed algo is primary; HTTP poll is fallback
+  const algo = stream.algo ?? polledAlgo;
+
   // Load saved strategies for algo picker
   useEffect(() => {
     api.strategies.list().then(setStrategies).catch(() => {});
   }, []);
 
-  // Poll algo status when running
+  // HTTP poll — fast when WS is not connected, slow when WS is streaming
   useEffect(() => {
-    const poll = () => api.algo.status().then(setAlgo).catch(() => {});
+    const interval = stream.status === "connected" ? 10000 : 3000;
+    const poll = () => api.algo.status().then(setPolledAlgo).catch(() => {});
     poll();
-    algoInterval.current = setInterval(poll, 3000);
+    algoInterval.current = setInterval(poll, interval);
     return () => { if (algoInterval.current) clearInterval(algoInterval.current); };
-  }, []);
+  }, [stream.status]);
 
   const handleAlgoStart = async () => {
     setAlgoLoading(true);
@@ -107,7 +87,7 @@ export default function LivePage() {
       const stratId = algoStrategyId !== "__current__" ? algoStrategyId : undefined;
       await api.algo.start(symbol, timeframe, algoVolume, stratId);
       const status = await api.algo.status();
-      setAlgo(status);
+      setPolledAlgo(status);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Failed to start algo");
     } finally {
@@ -120,7 +100,7 @@ export default function LivePage() {
     try {
       await api.algo.stop();
       const status = await api.algo.status();
-      setAlgo(status);
+      setPolledAlgo(status);
     } catch {
       // ignore
     } finally {

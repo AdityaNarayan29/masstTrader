@@ -48,6 +48,32 @@ export interface CandleData {
   indicators: Record<string, number>;
 }
 
+export interface AlgoCondition {
+  description: string;
+  indicator: string;
+  parameter: string;
+  operator: string;
+  value: number | string;
+  passed: boolean;
+}
+
+export interface AlgoStatusData {
+  running: boolean;
+  symbol: string | null;
+  timeframe: string;
+  strategy_name: string | null;
+  volume: number;
+  in_position: boolean;
+  position_ticket: number | null;
+  trades_placed: number;
+  signals: Array<{ time: string; action: string; detail: string }>;
+  current_price: { bid: number; ask: number; spread: number } | null;
+  indicators: Record<string, number | string | null>;
+  entry_conditions: AlgoCondition[];
+  exit_conditions: AlgoCondition[];
+  last_check: string | null;
+}
+
 export type StreamStatus = "disconnected" | "connecting" | "connected" | "error";
 
 export function useLiveStream(symbol: string, timeframe: string = "1m") {
@@ -57,6 +83,7 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
   const [positions, setPositions] = useState<PositionData[]>([]);
   const [account, setAccount] = useState<AccountData | null>(null);
   const [candle, setCandle] = useState<CandleData | null>(null);
+  const [algo, setAlgo] = useState<AlgoStatusData | null>(null);
   const [error, setError] = useState("");
 
   const connect = useCallback(() => {
@@ -92,6 +119,9 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
           break;
         case "candle":
           setCandle(msg as CandleData);
+          break;
+        case "algo":
+          setAlgo(msg as AlgoStatusData);
           break;
         case "error":
           setError(msg.message);
@@ -145,6 +175,7 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
     positions,
     account,
     candle,
+    algo,
     error,
     connect,
     disconnect,

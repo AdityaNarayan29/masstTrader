@@ -672,7 +672,7 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                     })
                 except Exception as e:
                     _add_signal("error", f"Price fetch failed: {e}")
-                    algo_stop_event.wait(15)
+                    algo_stop_event.wait(5)
                     continue
 
                 # Fetch latest candles + indicators
@@ -725,7 +725,7 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                 entry_pass = sum(1 for r in entry_results if r["passed"])
                 entry_total = len(entry_results)
                 bid = price_info["bid"]
-                if check_count % 4 == 1:  # every ~60s
+                if check_count % 6 == 1:  # every ~30s
                     pos_status = "IN_POSITION" if algo_state["in_position"] else "WATCHING"
                     _add_signal("check", f"{pos_status} | bid={bid:.5f} | entry {entry_pass}/{entry_total}")
 
@@ -793,7 +793,7 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                 _add_signal("error", str(e))
 
             # Wait before next check
-            algo_stop_event.wait(15)
+            algo_stop_event.wait(5)
 
         _add_signal("stop", "Algo stopped")
 
@@ -952,6 +952,30 @@ async def ws_live(ws: WebSocket):
                         mt5_executor, connector.get_account_info
                     )
                     await ws.send_json({"type": "account", **sanitize_for_json(account)})
+                except Exception:
+                    pass
+
+            # Algo status — every 2nd tick (~1s)
+            if tick_counter % 2 == 0 and algo_state["running"]:
+                try:
+                    algo_data = {
+                        "type": "algo",
+                        "running": algo_state["running"],
+                        "symbol": algo_state["symbol"],
+                        "timeframe": algo_state["timeframe"],
+                        "strategy_name": algo_state["strategy_name"],
+                        "volume": algo_state["volume"],
+                        "in_position": algo_state["in_position"],
+                        "position_ticket": algo_state["position_ticket"],
+                        "trades_placed": algo_state["trades_placed"],
+                        "signals": algo_state["signals"][-20:],
+                        "current_price": algo_state["current_price"],
+                        "indicators": algo_state["indicators"],
+                        "entry_conditions": algo_state["entry_conditions"],
+                        "exit_conditions": algo_state["exit_conditions"],
+                        "last_check": algo_state["last_check"],
+                    }
+                    await ws.send_json(sanitize_for_json(algo_data))
                 except Exception:
                     pass
 
