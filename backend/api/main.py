@@ -18,11 +18,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 def sanitize_for_json(obj):
-    """Recursively replace NaN/Inf with None for JSON serialization."""
+    """Recursively replace NaN/Inf with None and convert numpy types for JSON."""
+    import numpy as np
     if isinstance(obj, dict):
         return {k: sanitize_for_json(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [sanitize_for_json(v) for v in obj]
+    elif isinstance(obj, (np.bool_,)):
+        return bool(obj)
+    elif isinstance(obj, (np.integer,)):
+        return int(obj)
+    elif isinstance(obj, (np.floating,)):
+        val = float(obj)
+        return None if math.isnan(val) or math.isinf(val) else val
     elif isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
         return None
     return obj
@@ -658,7 +666,7 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
             # Evaluate each entry condition individually and store results
             entry_results = []
             for c in entry_conditions:
-                passed = evaluate_condition(row, prev_row, c)
+                passed = bool(evaluate_condition(row, prev_row, c))
                 entry_results.append({
                     "description": c.get("description", ""),
                     "indicator": c.get("indicator", ""),
@@ -672,7 +680,7 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
             # Evaluate each exit condition individually
             exit_results = []
             for c in exit_conditions:
-                passed = evaluate_condition(row, prev_row, c)
+                passed = bool(evaluate_condition(row, prev_row, c))
                 exit_results.append({
                     "description": c.get("description", ""),
                     "indicator": c.get("indicator", ""),
@@ -797,7 +805,7 @@ def algo_stop():
 
 @app.get("/api/algo/status")
 def algo_status():
-    return {
+    data = {
         "running": algo_state["running"],
         "symbol": algo_state["symbol"],
         "timeframe": algo_state["timeframe"],
@@ -813,6 +821,7 @@ def algo_status():
         "exit_conditions": algo_state["exit_conditions"],
         "last_check": algo_state["last_check"],
     }
+    return JSONResponse(content=sanitize_for_json(data))
 
 
 @app.get("/api/health")
