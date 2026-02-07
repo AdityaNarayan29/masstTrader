@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { SymbolCombobox } from "@/components/symbol-combobox";
 import { Loader2, Eye, EyeOff, LogOut } from "lucide-react";
 
 interface AccountInfo {
@@ -416,13 +417,11 @@ export default function ConnectionPage() {
           <CardContent>
             <div className="flex flex-wrap items-end gap-4">
               <div className="space-y-2">
-                <Label htmlFor="symbol">Symbol</Label>
-                <Input
-                  id="symbol"
-                  type="text"
+                <Label>Symbol</Label>
+                <SymbolCombobox
                   value={symbol}
-                  onChange={(e) => setSymbol(e.target.value)}
-                  className="w-32"
+                  onChange={setSymbol}
+                  disabled={loading}
                 />
               </div>
               <div className="space-y-2">

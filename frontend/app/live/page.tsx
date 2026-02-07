@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { useLiveStream } from "@/hooks/use-live-stream";
 import { LiveChart } from "@/components/live-chart";
 import { Loader2 } from "lucide-react";
+import { SymbolCombobox } from "@/components/symbol-combobox";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -201,10 +202,9 @@ export default function LivePage() {
           <div className="flex flex-wrap items-end gap-4">
             <div className="space-y-2">
               <Label>Symbol</Label>
-              <Input
+              <SymbolCombobox
                 value={symbol}
-                onChange={(e) => setSymbol(e.target.value)}
-                className="w-36"
+                onChange={setSymbol}
                 disabled={stream.status === "connected"}
               />
             </div>

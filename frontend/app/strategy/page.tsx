@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { Loader2, Save, Trash2, Download } from "lucide-react";
+import { SymbolCombobox } from "@/components/symbol-combobox";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -269,13 +270,10 @@ export default function StrategyPage() {
             </div>
             <div className="flex flex-wrap gap-4 items-end">
               <div className="space-y-2">
-                <Label htmlFor="symbol-input">Symbol</Label>
-                <Input
-                  id="symbol-input"
-                  type="text"
+                <Label>Symbol</Label>
+                <SymbolCombobox
                   value={symbol}
-                  onChange={(e) => setSymbol(e.target.value)}
-                  className="w-40"
+                  onChange={setSymbol}
                 />
               </div>
               <Button
