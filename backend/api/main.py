@@ -636,10 +636,19 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
     exit_conditions = rule.get("exit_conditions", [])
     sl_pips = rule.get("stop_loss_pips")
     tp_pips = rule.get("take_profit_pips")
+    direction = rule.get("direction", "buy")  # "buy" or "sell"
     algo_state["strategy_rules"] = rule
 
     connector.select_symbol(symbol)
-    _add_signal("start", f"Algo started: {symbol} / {timeframe} / vol={volume}")
+
+    # Get pip value from symbol info (point * 10 for 5-digit/3-digit brokers)
+    try:
+        sym_info = connector.get_symbol_info(symbol)
+        pip_value = sym_info["point"] * 10  # 0.00001 * 10 = 0.0001 for EUR, 0.001 * 10 = 0.01 for JPY
+    except Exception:
+        pip_value = 0.0001  # fallback for standard forex
+
+    _add_signal("start", f"Algo started: {symbol} / {timeframe} / vol={volume} / {direction} / pip={pip_value}")
 
     price_info = None
     check_count = 0
@@ -726,18 +735,30 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                 all_entry = all(r["passed"] for r in entry_results)
                 if all_entry and len(entry_conditions) > 0:
                     try:
+                        # Calculate SL/TP based on direction
+                        if direction == "buy":
+                            entry_price = price_info["ask"]
+                            sl_price = entry_price - sl_pips * pip_value if sl_pips else None
+                            tp_price = entry_price + tp_pips * pip_value if tp_pips else None
+                        else:
+                            entry_price = price_info["bid"]
+                            sl_price = entry_price + sl_pips * pip_value if sl_pips else None
+                            tp_price = entry_price - tp_pips * pip_value if tp_pips else None
+
                         result = connector.place_trade(
                             symbol=symbol,
-                            trade_type="buy",
+                            trade_type=direction,
                             volume=volume,
-                            stop_loss=price_info["ask"] - sl_pips * 0.0001 if sl_pips else None,
-                            take_profit=price_info["ask"] + tp_pips * 0.0001 if tp_pips else None,
+                            stop_loss=sl_price,
+                            take_profit=tp_price,
                         )
                         if result.get("success"):
                             algo_state["in_position"] = True
                             algo_state["position_ticket"] = result.get("order_id")
                             algo_state["trades_placed"] += 1
-                            _add_signal("buy", f"Entry at {price_info['ask']:.5f} | ticket={result.get('order_id')}")
+                            sl_str = f" SL={sl_price:.5f}" if sl_price else ""
+                            tp_str = f" TP={tp_price:.5f}" if tp_price else ""
+                            _add_signal(direction, f"Entry {direction.upper()} at {entry_price:.5f}{sl_str}{tp_str} | ticket={result.get('order_id')}")
                         else:
                             _add_signal("error", f"Trade failed: {result.get('message', 'unknown')}")
                     except Exception as e:
@@ -749,10 +770,13 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                     try:
                         ticket = algo_state["position_ticket"]
                         if ticket:
-                            connector.close_position(ticket)
-                            _add_signal("close", f"Exit signal — closed ticket {ticket}")
-                        algo_state["in_position"] = False
-                        algo_state["position_ticket"] = None
+                            close_result = connector.close_position(ticket)
+                            if close_result.get("success"):
+                                _add_signal("close", f"Exit signal — closed ticket {ticket}")
+                                algo_state["in_position"] = False
+                                algo_state["position_ticket"] = None
+                            else:
+                                _add_signal("error", f"Close failed: {close_result.get('message', 'unknown')}")
                     except Exception as e:
                         _add_signal("error", f"Close error: {str(e)}")
 
