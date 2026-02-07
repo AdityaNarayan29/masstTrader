@@ -83,7 +83,10 @@ export default function AnalyzerPage() {
   };
 
   const update = (key: string, value: unknown) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => ({
+      ...prev,
+      [key]: typeof value === "number" && isNaN(value) ? 0 : value,
+    }));
 
   const scoreColor =
     score !== null
