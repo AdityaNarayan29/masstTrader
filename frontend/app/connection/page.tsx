@@ -12,15 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { SymbolCombobox } from "@/components/symbol-combobox";
 import { Loader2, Eye, EyeOff, LogOut } from "lucide-react";
 
 interface AccountInfo {
@@ -79,12 +71,6 @@ export default function ConnectionPage() {
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  // Fetch data state
-  const [symbol, setSymbol] = useState("EURUSDm");
-  const [timeframe, setTimeframe] = useState("1h");
-  const [bars, setBars] = useState("500");
-  const [fetchResult, setFetchResult] = useState("");
-
   // Positions & history state
   const [positions, setPositions] = useState<Position[]>([]);
   const [positionsLoading, setPositionsLoading] = useState(false);
@@ -131,7 +117,6 @@ export default function ConnectionPage() {
       setConnected(false);
       setAccount(null);
       setDataLoaded(false);
-      setFetchResult("");
       setPositions([]);
       setTrades([]);
     } catch (e: unknown) {
@@ -145,7 +130,7 @@ export default function ConnectionPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await api.data.demo();
+      await api.data.demo();
       setDataLoaded(true);
       setConnected(true);
       setAccount({
@@ -160,26 +145,8 @@ export default function ConnectionPage() {
         name: "Demo Account",
         profit: 0,
       });
-      setFetchResult(`Loaded ${res.count} demo candles with indicators`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load demo");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleFetchData = async () => {
-    setLoading(true);
-    setError("");
-    setFetchResult("");
-    try {
-      const res = await api.data.fetch(symbol, timeframe, parseInt(bars));
-      setDataLoaded(true);
-      setFetchResult(
-        `Loaded ${res.count} candles with ${res.columns.length} columns`
-      );
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Fetch failed");
     } finally {
       setLoading(false);
     }
@@ -400,69 +367,6 @@ export default function ConnectionPage() {
                   })}
                 </Badge>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Historical Data Fetch Card */}
-      {connected && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Load Historical Data</CardTitle>
-            <CardDescription>
-              Fetch OHLCV candle data with technical indicators for backtesting
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap items-end gap-4">
-              <div className="space-y-2">
-                <Label>Symbol</Label>
-                <SymbolCombobox
-                  value={symbol}
-                  onChange={setSymbol}
-                  disabled={loading}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Timeframe</Label>
-                <Select value={timeframe} onValueChange={setTimeframe}>
-                  <SelectTrigger className="w-28">
-                    <SelectValue placeholder="Timeframe" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1m">1m</SelectItem>
-                    <SelectItem value="5m">5m</SelectItem>
-                    <SelectItem value="15m">15m</SelectItem>
-                    <SelectItem value="30m">30m</SelectItem>
-                    <SelectItem value="1h">1h</SelectItem>
-                    <SelectItem value="4h">4h</SelectItem>
-                    <SelectItem value="1d">1d</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="bars">Bars</Label>
-                <Input
-                  id="bars"
-                  type="number"
-                  value={bars}
-                  onChange={(e) => setBars(e.target.value)}
-                  className="w-24"
-                />
-              </div>
-              <Button onClick={handleFetchData} disabled={loading}>
-                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-                {loading ? "Fetching..." : "Fetch Data"}
-              </Button>
-            </div>
-            {fetchResult && (
-              <p className="mt-3 text-sm text-green-500">{fetchResult}</p>
-            )}
-            {dataLoaded && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Data loaded and ready for backtesting
-              </p>
             )}
           </CardContent>
         </Card>

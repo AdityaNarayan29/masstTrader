@@ -60,7 +60,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = (resolvedTheme ?? "dark") === "dark";
-  const [status, setStatus] = useState({ mt5: false, data: false, strategy: false });
+  const [status, setStatus] = useState<{ mt5: boolean; data: boolean; strategy: boolean } | null>(null);
 
   useEffect(() => {
     const poll = () =>
@@ -111,24 +111,37 @@ export default function Sidebar() {
         <Separator />
 
         <div className="p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">MT5</span>
-            <Badge variant={status.mt5 ? "default" : "destructive"} className="text-[10px] h-5">
-              {status.mt5 ? "Connected" : "Offline"}
-            </Badge>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Data</span>
-            <Badge variant={status.data ? "default" : "secondary"} className="text-[10px] h-5">
-              {status.data ? "Loaded" : "None"}
-            </Badge>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Strategy</span>
-            <Badge variant={status.strategy ? "default" : "secondary"} className="text-[10px] h-5">
-              {status.strategy ? "Active" : "None"}
-            </Badge>
-          </div>
+          {status === null ? (
+            <>
+              {["MT5", "Data", "Strategy"].map((label) => (
+                <div key={label} className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">{label}</span>
+                  <span className="h-5 w-16 rounded-full bg-muted animate-pulse" />
+                </div>
+              ))}
+            </>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">MT5</span>
+                <Badge variant={status.mt5 ? "default" : "destructive"} className="text-[10px] h-5">
+                  {status.mt5 ? "Connected" : "Offline"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Data</span>
+                <Badge variant={status.data ? "default" : "secondary"} className="text-[10px] h-5">
+                  {status.data ? "Loaded" : "None"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Strategy</span>
+                <Badge variant={status.strategy ? "default" : "secondary"} className="text-[10px] h-5">
+                  {status.strategy ? "Active" : "None"}
+                </Badge>
+              </div>
+            </>
+          )}
 
           <Separator className="!mt-3 !mb-1" />
 
