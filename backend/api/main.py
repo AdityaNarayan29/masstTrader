@@ -649,7 +649,7 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
             check_count += 1
 
             # Check if MT5 connection is still alive
-            if connector is None:
+            if connector is None or not connector.is_connected:
                 _add_signal("error", "MT5 connection lost — stopping algo")
                 algo_state["running"] = False
                 return

@@ -81,7 +81,14 @@ class MT5Connector:
 
     @property
     def is_connected(self) -> bool:
-        return self._connected
+        if not self._connected:
+            return False
+        # Verify MT5 terminal is actually reachable
+        info = mt5.terminal_info()
+        if info is None:
+            self._connected = False
+            return False
+        return True
 
     def get_account_info(self) -> dict:
         """Get account balance, equity, margin, leverage, etc."""
