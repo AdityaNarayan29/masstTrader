@@ -14,12 +14,13 @@ class Settings:
     # AI
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "anthropic")
+    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "gemini")
 
     def validate(self):
         errors = []
-        if not self.ANTHROPIC_API_KEY and not self.OPENAI_API_KEY:
-            errors.append("At least one AI API key is required (ANTHROPIC or OPENAI)")
+        if not self.ANTHROPIC_API_KEY and not self.OPENAI_API_KEY and not self.GOOGLE_API_KEY:
+            errors.append("At least one AI API key is required (ANTHROPIC, OPENAI, or GOOGLE)")
         return errors
 
 

@@ -19,7 +19,7 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = 30000
       throw new Error("Request timed out — check if the backend is reachable");
     }
     if (e instanceof TypeError && (e.message.includes("fetch") || e.message.includes("Failed"))) {
-      throw new Error("Cannot reach backend — check if the server is running and port 8000 is open");
+      throw new Error("Cannot reach backend — check if the server is running and the port is open");
     }
     throw e;
   } finally {

@@ -1,27 +1,31 @@
 """
 AI Service — handles all LLM interactions for strategy parsing,
 trade analysis, and personalized education.
+Supports: Google Gemini (free), Anthropic Claude, OpenAI GPT-4.
 """
 import json
 from config.settings import settings
 
-if settings.AI_PROVIDER == "anthropic":
-    from anthropic import Anthropic
-else:
-    from openai import OpenAI
-
-
-def _get_client():
-    if settings.AI_PROVIDER == "anthropic":
-        return Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-    else:
-        return OpenAI(api_key=settings.OPENAI_API_KEY)
-
 
 def _call_llm(system_prompt: str, user_prompt: str, json_mode: bool = False) -> str:
-    client = _get_client()
+    provider = settings.AI_PROVIDER
 
-    if settings.AI_PROVIDER == "anthropic":
+    if provider == "gemini":
+        import google.generativeai as genai
+        genai.configure(api_key=settings.GOOGLE_API_KEY)
+        model = genai.GenerativeModel(
+            "gemini-2.0-flash",
+            system_instruction=system_prompt,
+        )
+        gen_config = {}
+        if json_mode:
+            gen_config["response_mime_type"] = "application/json"
+        response = model.generate_content(user_prompt, generation_config=gen_config or None)
+        return response.text
+
+    elif provider == "anthropic":
+        from anthropic import Anthropic
+        client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=4096,
@@ -29,7 +33,10 @@ def _call_llm(system_prompt: str, user_prompt: str, json_mode: bool = False) -> 
             messages=[{"role": "user", "content": user_prompt}],
         )
         return response.content[0].text
-    else:
+
+    else:  # openai
+        from openai import OpenAI
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
