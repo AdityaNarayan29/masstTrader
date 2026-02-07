@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import { RadialBar, RadialBarChart, PolarAngleAxis } from "recharts";
@@ -41,15 +41,22 @@ export default function AnalyzerPage() {
     ema50: 1.098,
     vol_ratio: 1.2,
   });
+  const [strategies, setStrategies] = useState<Array<{ id: string; name: string; symbol: string }>>([]);
+  const [strategyId, setStrategyId] = useState("__current__");
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState("");
   const [score, setScore] = useState<number | null>(null);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    api.strategies.list().then(setStrategies).catch(() => {});
+  }, []);
+
   const handleAnalyze = async () => {
     setLoading(true);
     setError("");
     try {
+      const stratId = strategyId !== "__current__" ? strategyId : undefined;
       const result = await api.analyze.trade({
         symbol: form.symbol,
         trade_type: form.trade_type,
@@ -64,6 +71,7 @@ export default function AnalyzerPage() {
           EMA_50: form.ema50,
           Volume_ratio: form.vol_ratio,
         },
+        ...(stratId ? { strategy_id: stratId } : {}),
       });
       setAnalysis(result.analysis);
       setScore(result.alignment_score);
@@ -109,6 +117,33 @@ export default function AnalyzerPage() {
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
           {error}
         </div>
+      )}
+
+      {/* Strategy Picker */}
+      {strategies.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Strategy</CardTitle>
+            <CardDescription>
+              Select which strategy to compare this trade against.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Select value={strategyId} onValueChange={setStrategyId}>
+              <SelectTrigger className="w-72">
+                <SelectValue placeholder="Select strategy" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__current__">Current (in-memory)</SelectItem>
+                {strategies.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name} ({s.symbol})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
       )}
 
       {/* Trade Details Form */}

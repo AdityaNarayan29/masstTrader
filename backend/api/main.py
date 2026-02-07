@@ -109,6 +109,7 @@ class TradeAnalyzeRequest(BaseModel):
     open_time: str
     close_time: str
     indicators_at_entry: dict
+    strategy_id: Optional[str] = None
 
 
 class PlaceTradeRequest(BaseModel):
@@ -527,8 +528,22 @@ def get_backtest_endpoint(backtest_id: str):
 
 @app.post("/api/analyze/trade")
 def analyze_trade_endpoint(req: TradeAnalyzeRequest):
-    if not current_strategy:
-        raise HTTPException(status_code=400, detail="No strategy loaded")
+    global current_strategy
+
+    # Load strategy from DB if strategy_id provided
+    strategy = current_strategy
+    if req.strategy_id:
+        saved = get_strategy(req.strategy_id)
+        if not saved:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+        strategy = saved
+        current_strategy = saved
+
+    if not strategy:
+        raise HTTPException(
+            status_code=400,
+            detail="No strategy selected. Pick a saved strategy or parse one first."
+        )
     try:
         from backend.services.ai_service import analyze_trade
         trade = {
@@ -540,7 +555,7 @@ def analyze_trade_endpoint(req: TradeAnalyzeRequest):
             "open_time": req.open_time,
             "close_time": req.close_time,
         }
-        result = analyze_trade(current_strategy, trade, req.indicators_at_entry)
+        result = analyze_trade(strategy, trade, req.indicators_at_entry)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

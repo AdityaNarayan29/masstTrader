@@ -185,6 +185,7 @@ export const api = {
       symbol: string; trade_type: string; entry_price: number;
       exit_price: number; profit: number; open_time: string;
       close_time: string; indicators_at_entry: Record<string, number>;
+      strategy_id?: string;
     }) =>
       request<{ analysis: string; alignment_score: number }>(
         "/api/analyze/trade",
