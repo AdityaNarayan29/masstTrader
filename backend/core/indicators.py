@@ -113,7 +113,7 @@ def get_indicator_snapshot(df: pd.DataFrame, index: int = -1) -> dict:
     row = df.iloc[index]
     snapshot = {}
     indicator_cols = [
-        c for c in df.columns if c not in ["open", "high", "low", "close", "volume"]
+        c for c in df.columns if c not in ["open", "high", "low", "close", "volume", "datetime", "index"]
     ]
     for col in indicator_cols:
         val = row[col]

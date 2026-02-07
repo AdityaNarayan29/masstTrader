@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, Eye, EyeOff } from "lucide-react";
+import { Loader2, Eye, EyeOff, LogOut } from "lucide-react";
 
 interface AccountInfo {
   login: number;
@@ -80,7 +80,7 @@ export default function ConnectionPage() {
   const [dataLoaded, setDataLoaded] = useState(false);
 
   // Fetch data state
-  const [symbol, setSymbol] = useState("EURUSD");
+  const [symbol, setSymbol] = useState("EURUSDm");
   const [timeframe, setTimeframe] = useState("1h");
   const [bars, setBars] = useState("500");
   const [fetchResult, setFetchResult] = useState("");
@@ -91,6 +91,17 @@ export default function ConnectionPage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [tradesLoading, setTradesLoading] = useState(false);
   const [historyDays, setHistoryDays] = useState("7");
+
+  // Sync with backend on mount — if MT5 is already connected, show it
+  useEffect(() => {
+    api.health().then((h) => {
+      if (h.mt5_connected) {
+        setConnected(true);
+        if (h.has_data) setDataLoaded(true);
+        api.mt5.account().then(setAccount).catch(() => {});
+      }
+    }).catch(() => {});
+  }, []);
 
   const handleConnect = async () => {
     setLoading(true);
@@ -107,6 +118,24 @@ export default function ConnectionPage() {
       setConnected(true);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Connection failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      await api.mt5.disconnect();
+      setConnected(false);
+      setAccount(null);
+      setDataLoaded(false);
+      setFetchResult("");
+      setPositions([]);
+      setTrades([]);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Disconnect failed");
     } finally {
       setLoading(false);
     }
@@ -209,89 +238,108 @@ export default function ConnectionPage() {
         </div>
       )}
 
-      {/* Login Form Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle>MT5 Account Login</CardTitle>
-          <CardDescription>
-            Enter your MetaTrader 5 credentials to connect to your trading
-            account
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="login">Login / Account Number</Label>
-              <Input
-                id="login"
-                type="text"
-                placeholder="e.g. 12345678"
-                value={login}
-                onChange={(e) => setLogin(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
+      {/* Login Form Card — only show when disconnected */}
+      {!connected && (
+        <Card>
+          <CardHeader>
+            <CardTitle>MT5 Account Login</CardTitle>
+            <CardDescription>
+              Enter your MetaTrader 5 credentials to connect to your trading
+              account
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="login">Login / Account Number</Label>
                 <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Your MT5 password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="pr-10"
+                  id="login"
+                  type="text"
+                  placeholder="e.g. 12345678"
+                  value={login}
+                  onChange={(e) => setLogin(e.target.value)}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Your MT5 password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="server">Server</Label>
+                <Input
+                  id="server"
+                  type="text"
+                  placeholder="e.g. Deriv-Demo"
+                  value={server}
+                  onChange={(e) => setServer(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="mt5path">MT5 Path (optional)</Label>
+                <Input
+                  id="mt5path"
+                  type="text"
+                  placeholder="C:\Program Files\MetaTrader 5\terminal64.exe"
+                  value={mt5Path}
+                  onChange={(e) => setMt5Path(e.target.value)}
+                />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="server">Server</Label>
-              <Input
-                id="server"
-                type="text"
-                placeholder="e.g. Deriv-Demo"
-                value={server}
-                onChange={(e) => setServer(e.target.value)}
-              />
+            <div className="mt-6">
+              <Button
+                onClick={handleConnect}
+                disabled={loading || !login || !password || !server}
+              >
+                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                {loading ? "Connecting..." : "Connect to MT5"}
+              </Button>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="mt5path">MT5 Path (optional)</Label>
-              <Input
-                id="mt5path"
-                type="text"
-                placeholder="C:\Program Files\MetaTrader 5\terminal64.exe"
-                value={mt5Path}
-                onChange={(e) => setMt5Path(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="mt-6">
-            <Button
-              onClick={handleConnect}
-              disabled={loading || !login || !password || !server}
-            >
-              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {loading ? "Connecting..." : "Connect to MT5"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Account Info Card */}
       {connected && account && (
         <Card>
           <CardHeader>
-            <CardTitle>Account Information</CardTitle>
-            <CardDescription>
-              {account.name} &mdash; {account.server}
-              {account.login > 0 && ` (${account.login})`}
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Account Information</CardTitle>
+                <CardDescription>
+                  {account.name} &mdash; {account.server}
+                  {account.login > 0 && ` (${account.login})`}
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDisconnect}
+                disabled={loading}
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <LogOut className="h-4 w-4" />
+                )}
+                Disconnect
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">

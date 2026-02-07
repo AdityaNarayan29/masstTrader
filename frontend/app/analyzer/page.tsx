@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
+import { RadialBar, RadialBarChart, PolarAngleAxis } from "recharts";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -21,6 +22,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import {
+  ChartContainer,
+  type ChartConfig,
+} from "@/components/ui/chart";
 
 export default function AnalyzerPage() {
   const [form, setForm] = useState({
@@ -265,21 +270,60 @@ export default function AnalyzerPage() {
         </CardContent>
       </Card>
 
-      {/* Strategy Alignment Score */}
-      {score !== null && (
-        <Card className={scoreColor}>
-          <CardContent className="flex flex-col items-center justify-center py-8">
-            <p className="text-xs font-medium uppercase tracking-widest opacity-80 mb-2">
-              Strategy Alignment Score
-            </p>
-            <p className="text-6xl font-bold tabular-nums">
-              {score}
-              <span className="text-xl font-medium opacity-60">/100</span>
-            </p>
-            <p className="text-sm mt-2 opacity-70">{scoreLabel}</p>
-          </CardContent>
-        </Card>
-      )}
+      {/* Strategy Alignment Score — Radial Gauge */}
+      {score !== null && (() => {
+        const gaugeColor = score >= 70 ? "#22c55e" : score >= 40 ? "#eab308" : "#ef4444";
+        const gaugeConfig = {
+          score: { label: "Score", color: gaugeColor },
+        } satisfies ChartConfig;
+
+        return (
+          <Card className={scoreColor}>
+            <CardContent className="flex flex-col items-center justify-center py-6">
+              <p className="text-xs font-medium uppercase tracking-widest opacity-80 mb-2">
+                Strategy Alignment Score
+              </p>
+              <ChartContainer config={gaugeConfig} className="h-44 w-44">
+                <RadialBarChart
+                  innerRadius="75%"
+                  outerRadius="100%"
+                  data={[{ score, fill: gaugeColor }]}
+                  startAngle={90}
+                  endAngle={-270}
+                >
+                  <PolarAngleAxis
+                    type="number"
+                    domain={[0, 100]}
+                    angleAxisId={0}
+                    tick={false}
+                  />
+                  <RadialBar
+                    dataKey="score"
+                    background={{ fill: "hsl(var(--muted))" }}
+                    cornerRadius={8}
+                    angleAxisId={0}
+                  />
+                  <text
+                    x="50%"
+                    y="50%"
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    className="fill-foreground"
+                  >
+                    <tspan className="text-3xl font-bold" x="50%" dy="-4">
+                      {score}
+                    </tspan>
+                    <tspan className="text-xs fill-muted-foreground" x="50%" dy="18">
+                      / 100
+                    </tspan>
+                  </text>
+                </RadialBarChart>
+              </ChartContainer>
+              <p className="text-sm mt-1 opacity-70">{scoreLabel}</p>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* AI Analysis */}
       {analysis && (

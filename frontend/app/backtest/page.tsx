@@ -3,6 +3,16 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -23,6 +33,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 
 interface BacktestStats {
   total_trades: number;
@@ -89,50 +105,30 @@ export default function BacktestPage() {
     }
   };
 
-  const renderEquityCurve = () => {
-    if (equityCurve.length < 2) return null;
-    const min = Math.min(...equityCurve);
-    const max = Math.max(...equityCurve);
-    const range = max - min || 1;
-    const w = 800;
-    const h = 200;
-    const padding = 4;
-    const points = equityCurve
-      .map((v, i) => {
-        const x = (i / (equityCurve.length - 1)) * w;
-        const y = padding + (h - 2 * padding) - ((v - min) / range) * (h - 2 * padding);
-        return `${x},${y}`;
-      })
-      .join(" ");
-    const trending = equityCurve[equityCurve.length - 1] >= equityCurve[0];
-    const lineColor = trending ? "#22c55e" : "#ef4444";
-    const fillColor = trending ? "#22c55e" : "#ef4444";
+  // Chart configs
+  const equityChartConfig = {
+    equity: { label: "Equity", color: "var(--chart-1)" },
+  } satisfies ChartConfig;
 
-    // Build area fill path
-    const firstPoint = points.split(" ")[0];
-    const lastPoint = points.split(" ")[points.split(" ").length - 1];
-    const firstX = firstPoint.split(",")[0];
-    const lastX = lastPoint.split(",")[0];
-    const areaPath = `M${firstX},${h} L${points.replace(/ /g, " L")} L${lastX},${h} Z`;
+  const equityData = equityCurve.map((v, i) => ({ trade: i, equity: v }));
+  const trending =
+    equityCurve.length >= 2 &&
+    equityCurve[equityCurve.length - 1] >= equityCurve[0];
+  const equityColor = trending ? "#22c55e" : "#ef4444";
 
-    return (
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-48" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id="equityFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={fillColor} stopOpacity="0.2" />
-            <stop offset="100%" stopColor={fillColor} stopOpacity="0.02" />
-          </linearGradient>
-        </defs>
-        <path d={areaPath} fill="url(#equityFill)" />
-        <polyline fill="none" stroke={lineColor} strokeWidth="2" points={points} />
-        {/* Baseline */}
-        <line
-          x1="0" y1={h - 1} x2={w} y2={h - 1}
-          stroke="currentColor" strokeOpacity="0.1" strokeWidth="1"
-        />
-      </svg>
-    );
-  };
+  const winLossConfig = {
+    wins: { label: "Wins", color: "#22c55e" },
+    losses: { label: "Losses", color: "#ef4444" },
+  } satisfies ChartConfig;
+
+  const tradePnlConfig = {
+    profit: { label: "Profit", color: "var(--chart-1)" },
+  } satisfies ChartConfig;
+
+  const tradePnlData = trades.map((t, i) => ({
+    trade: i + 1,
+    profit: t.profit,
+  }));
 
   const statItems = stats
     ? [
@@ -282,13 +278,131 @@ export default function BacktestPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {renderEquityCurve()}
+              {equityData.length >= 2 && (
+                <ChartContainer config={equityChartConfig} className="h-64 w-full">
+                  <AreaChart data={equityData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                    <defs>
+                      <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={equityColor} stopOpacity={0.25} />
+                        <stop offset="100%" stopColor={equityColor} stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="trade"
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v) => `#${v}`}
+                    />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v) => `$${v.toLocaleString()}`}
+                      width={80}
+                    />
+                    <ChartTooltip
+                      content={
+                        <ChartTooltipContent
+                          formatter={(value) => `$${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                        />
+                      }
+                    />
+                    <Area
+                      dataKey="equity"
+                      type="monotone"
+                      stroke={equityColor}
+                      strokeWidth={2}
+                      fill="url(#equityGradient)"
+                    />
+                  </AreaChart>
+                </ChartContainer>
+              )}
               <div className="flex justify-between text-xs text-muted-foreground mt-2">
                 <span>Start: ${balance.toLocaleString()}</span>
                 <span>End: ${stats.final_balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
             </CardContent>
           </Card>
+
+          {/* Win/Loss Chart */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Win / Loss Breakdown</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={winLossConfig} className="h-32 w-full">
+                <BarChart
+                  layout="vertical"
+                  data={[
+                    { name: "Result", wins: stats.winning_trades, losses: stats.losing_trades },
+                  ]}
+                  margin={{ top: 0, right: 4, bottom: 0, left: 0 }}
+                >
+                  <XAxis type="number" hide />
+                  <YAxis type="category" dataKey="name" hide />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="wins" stackId="a" fill="#22c55e" radius={[4, 0, 0, 4]} />
+                  <Bar dataKey="losses" stackId="a" fill="#ef4444" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ChartContainer>
+              <div className="flex justify-center gap-6 text-xs text-muted-foreground mt-2">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-green-500" />
+                  Wins: {stats.winning_trades}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-red-500" />
+                  Losses: {stats.losing_trades}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Trade P/L Chart */}
+          {tradePnlData.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Trade Profit / Loss</CardTitle>
+                <CardDescription>
+                  Per-trade profit — green for wins, red for losses
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer config={tradePnlConfig} className="h-48 w-full">
+                  <BarChart data={tradePnlData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="trade"
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v) => `#${v}`}
+                    />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v) => `$${v}`}
+                      width={60}
+                    />
+                    <ChartTooltip
+                      content={
+                        <ChartTooltipContent
+                          formatter={(value) => `$${Number(value).toFixed(2)}`}
+                        />
+                      }
+                    />
+                    <Bar dataKey="profit" radius={[3, 3, 0, 0]}>
+                      {tradePnlData.map((entry, index) => (
+                        <Cell
+                          key={index}
+                          fill={entry.profit >= 0 ? "#22c55e" : "#ef4444"}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Trade History */}
           <Card>
