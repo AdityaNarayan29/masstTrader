@@ -1,7 +1,7 @@
 """
 AI Service — handles all LLM interactions for strategy parsing,
 trade analysis, and personalized education.
-Supports: Google Gemini (free), Anthropic Claude, OpenAI GPT-4.
+Supports: Groq (free), Google Gemini (free), Anthropic Claude, OpenAI GPT-4.
 """
 import json
 from config.settings import settings
@@ -10,7 +10,20 @@ from config.settings import settings
 def _call_llm(system_prompt: str, user_prompt: str, json_mode: bool = False) -> str:
     provider = settings.AI_PROVIDER
 
-    if provider == "gemini":
+    if provider == "groq":
+        from groq import Groq
+        client = Groq(api_key=settings.GROQ_API_KEY)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        kwargs = {"model": "llama-3.3-70b-versatile", "messages": messages, "max_tokens": 4096}
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        response = client.chat.completions.create(**kwargs)
+        return response.choices[0].message.content
+
+    elif provider == "gemini":
         import google.generativeai as genai
         genai.configure(api_key=settings.GOOGLE_API_KEY)
         model = genai.GenerativeModel(

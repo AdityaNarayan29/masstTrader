@@ -15,7 +15,8 @@ class Settings:
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
-    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "gemini")
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "groq")
 
     def validate(self):
         errors = []
