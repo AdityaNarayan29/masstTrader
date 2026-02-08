@@ -9,7 +9,7 @@ MasstTrader connects to MetaTrader 5, lets you describe trading strategies in pl
 | Feature | Description |
 |---------|-------------|
 | **MT5 Connection** | Connect to any MetaTrader 5 broker account (Exness, Deriv, etc.) directly from the browser. View positions, trade history, and account metrics |
-| **Live Dashboard** | Real-time streaming prices, candlestick charts with indicator overlays (EMA, SMA, Bollinger Bands), open positions with live P/L, and account metrics via WebSocket |
+| **Live Dashboard** | Real-time SSE-streamed prices, candlestick charts with indicator overlays (EMA, RSI, MACD, Bollinger Bands), open positions with live P/L, and account metrics |
 | **AI Strategy Builder** | Describe a strategy in natural language ("Buy when RSI < 30 and MACD crosses above signal") — AI converts it to structured, executable rules |
 | **Backtester** | Test strategies against real MT5 historical data with configurable timeframe, bars, balance, and risk. Candlestick chart with trade entry/exit markers, equity curve, and per-trade P/L breakdown |
 | **AI Trade Analyzer** | Submit a trade you took and AI compares it against your strategy rules, giving an alignment score (0-100) and detailed coaching feedback |
@@ -22,19 +22,88 @@ MasstTrader connects to MetaTrader 5, lets you describe trading strategies in pl
 ## Architecture
 
 ```
-Browser (Vercel HTTPS)
-    │
-    ├── REST API ──→ Vercel Rewrites ──→ AWS EC2 Windows (FastAPI :8008)
-    │                                         │
-    │                                    ┌────┴────┐
-    │                                    │         │
-    │                               MT5 Terminal  Groq LLM
-    │                               (Exness IPC)  (Llama 3.3 70B)
-    │
-    └── WebSocket ──→ Direct to AWS (ws://13.48.148.223:8008)
+┌─────────────────────────────────────────────────────────────────────┐
+│                          BROWSER (Client)                           │
+│                                                                     │
+│  Next.js 16 + TypeScript + Tailwind v4 + shadcn/ui                 │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
+│  │ Strategy │ │   Live   │ │ Backtest │ │ Analyzer │ │  Tutor   │ │
+│  │ Builder  │ │Dashboard │ │  Engine  │ │   (AI)   │ │  (AI)    │ │
+│  └────┬─────┘ └───┬──────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ │
+│       │       SSE ↓Stream       │            │            │        │
+│       │  ┌─────────────┐        │            │            │        │
+│       │  │EventSource  │        │            │            │        │
+│       │  │/api/sse/live│        │            │            │        │
+│       │  │/api/sse/tick│        │            │            │        │
+│       │  └──────┬──────┘        │            │            │        │
+│       │         │               │            │            │        │
+│  ─────┴─────────┴───────────────┴────────────┴────────────┴──────  │
+│                          REST API Client (api.ts)                   │
+└─────────────────────────────────┬───────────────────────────────────┘
+                                  │ HTTPS
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                     VERCEL EDGE NETWORK                             │
+│                                                                     │
+│  vercel.json rewrites: /api/* → http://EC2:8008/api/*              │
+│  (HTTPS → HTTP proxy, solves mixed content)                         │
+└─────────────────────────────────┬───────────────────────────────────┘
+                                  │ HTTP
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│               AWS EC2 Windows (FastAPI + Uvicorn :8008)             │
+│                                                                     │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │                      FastAPI Application                       │ │
+│  │                                                                │ │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │ │
+│  │  │  REST    │  │   SSE    │  │  Algo    │  │  Backtest    │  │ │
+│  │  │Endpoints │  │Streaming │  │  Engine  │  │   Engine     │  │ │
+│  │  │(CRUD,MT5)│  │(live,tick│  │(bg thread│  │(indicators,  │  │ │
+│  │  │          │  │ er)      │  │ trading) │  │ evaluate)    │  │ │
+│  │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └──────┬───────┘  │ │
+│  │       │              │             │               │          │ │
+│  │  ─────┴──────────────┴─────────────┴───────────────┴────────  │ │
+│  │                    MT5 Connector (IPC)                         │ │
+│  └──────────────────────────┬─────────────────────────────────────┘ │
+│                             │                                       │
+│  ┌──────────────────────────┴──────────────────────────────────┐   │
+│  │                                                              │   │
+│  │  ┌────────────┐    ┌────────────┐    ┌────────────────────┐ │   │
+│  │  │ MetaTrader │    │   SQLite   │    │   Groq / Gemini /  │ │   │
+│  │  │ 5 Terminal │    │   (data/   │    │   Claude / OpenAI  │ │   │
+│  │  │  (Exness)  │    │   .db)     │    │   (AI Provider)    │ │   │
+│  │  └────────────┘    └────────────┘    └────────────────────┘ │   │
+│  │                                                              │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system diagram, data flow, and technical details.
+### Data Flow
+
+```
+Live Streaming (SSE):
+  Browser → GET /api/sse/live?symbol=EURUSDm&timeframe=1m
+         ← event: price   (every 500ms)  — bid, ask, spread
+         ← event: positions (every 1s)   — open trades with P/L
+         ← event: account  (every 2s)    — balance, equity, margin
+         ← event: algo     (every 1s)    — conditions, indicators, signals
+         ← event: candle   (every 5s)    — OHLCV + computed indicators
+
+Sidebar Ticker (SSE):
+  Browser → GET /api/sse/ticker?symbol=EURUSDm
+         ← event: price       (every 1s) — bid, ask
+         ← event: account     (every 4s) — equity, profit
+         ← event: algo_status (every 2s) — running, trades count
+
+Strategy Flow:
+  User describes in English → AI parses to rules → Save to SQLite
+  → Load into Backtest Engine OR Algo Engine
+
+Algo Trading:
+  Strategy rules → Background thread → MT5 price check (5s loop)
+  → Evaluate entry/exit conditions → Place/close trades via MT5
+```
 
 ## Tech Stack
 
@@ -76,14 +145,15 @@ masstTrader/
 │   │   ├── symbol-combobox.tsx # Searchable symbol picker
 │   │   └── theme-provider.tsx  # Light/dark theme (next-themes)
 │   ├── hooks/
-│   │   └── use-live-stream.ts  # WebSocket hook
+│   │   ├── use-live-stream.ts  # SSE streaming hook (live dashboard)
+│   │   └── use-ticker.ts       # SSE ticker hook (sidebar)
 │   ├── lib/
 │   │   └── api.ts              # Typed API client
 │   └── vercel.json             # API proxy rewrites
 │
 ├── backend/
 │   ├── api/
-│   │   └── main.py             # All FastAPI endpoints + WebSocket
+│   │   └── main.py             # All FastAPI endpoints + SSE streaming
 │   ├── core/
 │   │   ├── backtester.py       # Backtesting engine
 │   │   └── indicators.py       # Technical indicators (ta library)
@@ -130,7 +200,6 @@ pnpm install
 
 # Set environment variables
 echo "NEXT_PUBLIC_API_URL=http://13.48.148.223:8008" > .env.local
-echo "NEXT_PUBLIC_WS_URL=ws://13.48.148.223:8008" >> .env.local
 
 # Run
 pnpm dev
@@ -139,9 +208,9 @@ pnpm dev
 ### Vercel Deployment
 
 1. Connect the `frontend/` directory to Vercel
-2. **Do not** set `NEXT_PUBLIC_API_URL` (leave it empty so requests use Vercel rewrites to avoid mixed content)
-3. Set `NEXT_PUBLIC_WS_URL=ws://13.48.148.223:8008` for live streaming
-4. `vercel.json` rewrites handle the HTTPS → HTTP proxy to the backend
+2. **Do not** set `NEXT_PUBLIC_API_URL` (leave empty — all requests use Vercel rewrites to avoid mixed content)
+3. `vercel.json` rewrites `/api/*` → `http://EC2:8008/api/*` (handles HTTPS → HTTP proxy)
+4. SSE streaming works through the same rewrite — no WebSocket or special config needed
 
 ## API Endpoints
 
@@ -166,7 +235,8 @@ pnpm dev
 | POST | `/api/algo/stop` | Stop algo trading |
 | GET | `/api/algo/status` | Algo status with conditions + indicators |
 | POST | `/api/tutor/lesson` | AI-generated trading lesson |
-| WS | `/api/ws/live` | WebSocket: live prices, positions, candles |
+| SSE | `/api/sse/live` | Full stream: prices, positions, account, candles, algo |
+| SSE | `/api/sse/ticker` | Lightweight stream: price + account for sidebar |
 
 ## License
 
