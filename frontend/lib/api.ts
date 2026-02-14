@@ -113,6 +113,11 @@ export const api = {
     list: () =>
       request<Array<{
         id: string; name: string; symbol: string;
+        timeframe: string; direction: string;
+        entry_conditions: Array<{ indicator: string; parameter: string; operator: string; value: number | string; description: string }>;
+        exit_conditions: Array<{ indicator: string; parameter: string; operator: string; value: number | string; description: string }>;
+        stop_loss_pips: number | null;
+        take_profit_pips: number | null;
         rule_count: number; created_at: string; updated_at: string;
       }>>("/api/strategies"),
     get: (id: string) =>

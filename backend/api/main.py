@@ -447,17 +447,25 @@ def create_strategy_endpoint(req: CreateStrategyRequest):
 @app.get("/api/strategies")
 def list_strategies_endpoint():
     strategies = list_strategies()
-    return [
-        {
+    result = []
+    for s in strategies:
+        rules = s.get("rules", [])
+        first_rule = rules[0] if rules else {}
+        result.append({
             "id": s["id"],
             "name": s["name"],
             "symbol": s["symbol"],
-            "rule_count": len(s.get("rules", [])),
+            "timeframe": first_rule.get("timeframe", ""),
+            "direction": first_rule.get("direction", "buy"),
+            "entry_conditions": first_rule.get("entry_conditions", []),
+            "exit_conditions": first_rule.get("exit_conditions", []),
+            "stop_loss_pips": first_rule.get("stop_loss_pips"),
+            "take_profit_pips": first_rule.get("take_profit_pips"),
+            "rule_count": len(rules),
             "created_at": s["created_at"],
             "updated_at": s["updated_at"],
-        }
-        for s in strategies
-    ]
+        })
+    return result
 
 
 @app.get("/api/strategies/{strategy_id}")

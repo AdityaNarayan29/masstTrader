@@ -51,6 +51,15 @@ interface HistoricalCandle {
 
 type AlgoStatus = import("@/hooks/use-live-stream").AlgoStatusData;
 
+// Convert MT5 timeframe format ("M5", "H1") → frontend format ("5m", "1h")
+const MT5_TO_UI_TF: Record<string, string> = {
+  M1: "1m", M5: "5m", M15: "15m", M30: "30m",
+  H1: "1h", H4: "4h", D1: "1d", W1: "1w",
+};
+function toUiTimeframe(mt5tf: string): string {
+  return MT5_TO_UI_TF[mt5tf] || mt5tf.toLowerCase();
+}
+
 export default function LivePage() {
   const [symbol, setSymbol] = useState("EURUSDm");
   const [timeframe, setTimeframe] = useState("1m");
@@ -60,7 +69,8 @@ export default function LivePage() {
   const [loadingChart, setLoadingChart] = useState(false);
 
   // Algo trading state
-  const [strategies, setStrategies] = useState<Array<{ id: string; name: string; symbol: string }>>([]);
+  type StrategyItem = Awaited<ReturnType<typeof api.strategies.list>>[number];
+  const [strategies, setStrategies] = useState<StrategyItem[]>([]);
   const [algoStrategyId, setAlgoStrategyId] = useState("__current__");
   const [algoVolume, setAlgoVolume] = useState(0.01);
   const [polledAlgo, setPolledAlgo] = useState<AlgoStatus | null>(null);
@@ -140,12 +150,24 @@ export default function LivePage() {
     return positions.find((p) => p.ticket === algo.position_ticket) ?? null;
   }, [algo?.in_position, algo?.position_ticket, positions]);
 
-  // Load saved strategies for algo picker — auto-select first if none chosen
+  // Currently selected strategy (full details for preview)
+  const selectedStrategy = useMemo(() => {
+    if (algoStrategyId === "__current__") return null;
+    return strategies.find((s) => s.id === algoStrategyId) ?? null;
+  }, [algoStrategyId, strategies]);
+
+  // Load saved strategies for algo picker — auto-select first and sync fields
   useEffect(() => {
     api.strategies.list().then((list) => {
       setStrategies(list);
       if (list.length > 0 && algoStrategyId === "__current__") {
-        setAlgoStrategyId(list[0].id);
+        const first = list[0];
+        setAlgoStrategyId(first.id);
+        if (first.symbol) setSymbol(first.symbol);
+        if (first.timeframe) {
+          const uiTf = toUiTimeframe(first.timeframe);
+          if (["1m","5m","15m","30m","1h","4h"].includes(uiTf)) setTimeframe(uiTf);
+        }
       }
     }).catch(() => {});
   }, []);
@@ -332,7 +354,13 @@ export default function LivePage() {
                 <Select value={algoStrategyId} onValueChange={(id) => {
                   setAlgoStrategyId(id);
                   const strat = strategies.find((s) => s.id === id);
-                  if (strat?.symbol && !liveStarted) setSymbol(strat.symbol);
+                  if (strat && !liveStarted) {
+                    if (strat.symbol) setSymbol(strat.symbol);
+                    if (strat.timeframe) {
+                      const uiTf = toUiTimeframe(strat.timeframe);
+                      if (["1m","5m","15m","30m","1h","4h"].includes(uiTf)) setTimeframe(uiTf);
+                    }
+                  }
                 }}>
                   <SelectTrigger className="w-full sm:w-56">
                     <SelectValue placeholder="Select strategy" />
@@ -409,6 +437,45 @@ export default function LivePage() {
               </Button>
             )}
           </div>
+
+          {/* Strategy preview (before starting) */}
+          {selectedStrategy && !algo?.running && (
+            <div className="border-t pt-3 space-y-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-medium">{selectedStrategy.name}</span>
+                <Badge variant="outline" className="text-[10px]">{selectedStrategy.timeframe}</Badge>
+                <Badge variant="outline" className="text-[10px]">{selectedStrategy.direction.toUpperCase()}</Badge>
+                {selectedStrategy.stop_loss_pips != null && (
+                  <Badge variant="destructive" className="text-[10px]">SL {selectedStrategy.stop_loss_pips} pips</Badge>
+                )}
+                {selectedStrategy.take_profit_pips != null && (
+                  <Badge className="bg-green-600 hover:bg-green-600/90 text-white text-[10px]">TP {selectedStrategy.take_profit_pips} pips</Badge>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {selectedStrategy.entry_conditions.length > 0 && (
+                  <div className="rounded-md border border-green-500/20 bg-green-500/5 p-2.5 space-y-1">
+                    <p className="text-[10px] font-semibold uppercase text-green-600">Entry ({selectedStrategy.entry_conditions.length})</p>
+                    {selectedStrategy.entry_conditions.map((c, i) => (
+                      <p key={i} className="text-xs font-mono text-muted-foreground">
+                        {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""} {c.operator} {String(c.value)}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {selectedStrategy.exit_conditions.length > 0 && (
+                  <div className="rounded-md border border-red-500/20 bg-red-500/5 p-2.5 space-y-1">
+                    <p className="text-[10px] font-semibold uppercase text-red-600">Exit ({selectedStrategy.exit_conditions.length})</p>
+                    {selectedStrategy.exit_conditions.map((c, i) => (
+                      <p key={i} className="text-xs font-mono text-muted-foreground">
+                        {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""} {c.operator} {String(c.value)}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Algo status bar (compact, inline when running) */}
           {algo?.running && (
