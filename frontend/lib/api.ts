@@ -37,10 +37,11 @@ export const api = {
     mt5_connected: boolean;
     has_data: boolean;
     has_strategy: boolean;
+    has_env_creds: boolean;
   }>("/api/health"),
 
   mt5: {
-    connect: (login: number, password: string, server: string, mt5Path?: string) =>
+    connect: (login?: number, password?: string, server?: string, mt5Path?: string) =>
       request<{ success: boolean; terminal_build: number; terminal_name: string }>(
         "/api/mt5/connect",
         { method: "POST", body: JSON.stringify({ login, password, server, mt5_path: mt5Path }) }

@@ -110,9 +110,9 @@ algo_stop_event = threading.Event()
 
 # ── Request/Response Models ──
 class MT5LoginRequest(BaseModel):
-    login: int
-    password: str
-    server: str
+    login: Optional[int] = None
+    password: Optional[str] = None
+    server: Optional[str] = None
     mt5_path: Optional[str] = None
 
 
@@ -175,6 +175,16 @@ class LessonRequest(BaseModel):
 @app.post("/api/mt5/connect")
 def mt5_connect(req: MT5LoginRequest):
     global connector
+
+    # Fall back to .env values when not provided
+    login = req.login or (int(settings.MT5_LOGIN) if settings.MT5_LOGIN else None)
+    password = req.password or settings.MT5_PASSWORD or None
+    server = req.server or settings.MT5_SERVER or None
+    mt5_path = req.mt5_path or settings.MT5_PATH or None
+
+    if not login or not password or not server:
+        raise HTTPException(status_code=400, detail="MT5 credentials not provided and not configured in .env")
+
     result_box = [None]
     error_box = [None]
 
@@ -183,10 +193,10 @@ def mt5_connect(req: MT5LoginRequest):
             from backend.services.mt5_connector import MT5Connector
             c = MT5Connector()
             r = c.connect(
-                login=req.login,
-                password=req.password,
-                server=req.server,
-                mt5_path=req.mt5_path,
+                login=login,
+                password=password,
+                server=server,
+                mt5_path=mt5_path,
             )
             result_box[0] = (c, r)
         except Exception as e:
@@ -920,6 +930,7 @@ def health():
         "has_data": historical_data is not None,
         "has_strategy": current_strategy is not None,
         "algo_running": algo_state["running"],
+        "has_env_creds": bool(settings.MT5_LOGIN and settings.MT5_PASSWORD and settings.MT5_SERVER),
     }
 
 

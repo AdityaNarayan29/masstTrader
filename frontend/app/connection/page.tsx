@@ -70,6 +70,7 @@ export default function ConnectionPage() {
   const [error, setError] = useState("");
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [hasEnvCreds, setHasEnvCreds] = useState(false);
 
   // Positions & history state
   const [positions, setPositions] = useState<Position[]>([]);
@@ -86,6 +87,7 @@ export default function ConnectionPage() {
         if (h.has_data) setDataLoaded(true);
         api.mt5.account().then(setAccount).catch(() => {});
       }
+      if (h.has_env_creds) setHasEnvCreds(true);
     }).catch(() => {});
   }, []);
 
@@ -104,6 +106,21 @@ export default function ConnectionPage() {
       setConnected(true);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Connection failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleQuickConnect = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      await api.mt5.connect();
+      const info = await api.mt5.account();
+      setAccount(info);
+      setConnected(true);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Quick connect failed");
     } finally {
       setLoading(false);
     }
@@ -269,9 +286,19 @@ export default function ConnectionPage() {
               </div>
             </div>
             <div className="mt-6 flex items-center gap-3">
+              {hasEnvCreds && (
+                <Button
+                  onClick={handleQuickConnect}
+                  disabled={loading}
+                >
+                  {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {loading ? "Connecting..." : "Quick Connect"}
+                </Button>
+              )}
               <Button
                 onClick={handleConnect}
                 disabled={loading || !login || !password || !server}
+                variant={hasEnvCreds ? "outline" : "default"}
               >
                 {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                 {loading ? "Connecting..." : "Connect to MT5"}
