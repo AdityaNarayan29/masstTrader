@@ -17,7 +17,8 @@ import {
 
 const NAV = [
   { href: "/connection", label: "MT5 Connection", icon: "plug" },
-  { href: "/live", label: "Live Dashboard", icon: "activity" },
+  { href: "/live", label: "Market Watch", icon: "activity" },
+  { href: "/algo", label: "Algo Trader", icon: "bot" },
   { href: "/strategy", label: "Strategy Builder", icon: "brain" },
   { href: "/backtest", label: "Backtester", icon: "chart" },
   { href: "/analyzer", label: "Trade Analyzer", icon: "search" },
@@ -48,6 +49,11 @@ const icons: Record<string, React.ReactNode> = {
   activity: (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+    </svg>
+  ),
+  bot: (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5M14.25 3.104c.251.023.501.05.75.082M19 14.5l-1.5 4.5H6.5L5 14.5m14 0H5" />
     </svg>
   ),
   book: (
