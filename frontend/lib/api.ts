@@ -129,6 +129,13 @@ export const api = {
         raw_description: string; ai_explanation: string;
         created_at: string; updated_at: string;
       }>("/api/strategies", { method: "POST" }),
+    create: (strategy: { name: string; symbol: string; rules: Array<Record<string, unknown>>; raw_description?: string; ai_explanation?: string }) =>
+      request<{
+        id: string; name: string; symbol: string;
+        rules: Array<Record<string, unknown>>;
+        raw_description: string; ai_explanation: string;
+        created_at: string; updated_at: string;
+      }>("/api/strategies/create", { method: "POST", body: JSON.stringify(strategy) }),
     update: (id: string) =>
       request<{
         id: string; name: string; symbol: string;

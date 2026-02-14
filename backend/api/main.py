@@ -162,6 +162,14 @@ class AlgoStartRequest(BaseModel):
     strategy_id: Optional[str] = None
 
 
+class CreateStrategyRequest(BaseModel):
+    name: str
+    symbol: str
+    rules: list
+    raw_description: str = ""
+    ai_explanation: str = ""
+
+
 class LessonRequest(BaseModel):
     topic: str
     level: str = "intermediate"
@@ -419,6 +427,20 @@ def save_strategy_endpoint():
     if not current_strategy:
         raise HTTPException(status_code=400, detail="No strategy loaded. Parse one first.")
     saved = save_strategy(current_strategy)
+    return saved
+
+
+@app.post("/api/strategies/create")
+def create_strategy_endpoint(req: CreateStrategyRequest):
+    """Create a strategy directly from a JSON body (no AI parse needed)."""
+    strategy_data = {
+        "name": req.name,
+        "symbol": req.symbol,
+        "rules": req.rules,
+        "raw_description": req.raw_description,
+        "ai_explanation": req.ai_explanation,
+    }
+    saved = save_strategy(strategy_data)
     return saved
 
 
