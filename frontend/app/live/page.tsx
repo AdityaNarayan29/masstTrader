@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { api } from "@/lib/api";
 import { useLiveStream } from "@/hooks/use-live-stream";
-import { LiveChart } from "@/components/live-chart";
+import { LiveChart, type TradeMarkerData, type PositionOverlay } from "@/components/live-chart";
 import { Loader2 } from "lucide-react";
 import { SymbolCombobox } from "@/components/symbol-combobox";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,12 @@ interface HistoricalCandle {
   low: number;
   close: number;
   volume: number;
+  EMA_50?: number;
+  SMA_20?: number;
+  BB_upper?: number;
+  BB_middle?: number;
+  BB_lower?: number;
+  RSI_14?: number;
 }
 
 type AlgoStatus = import("@/hooks/use-live-stream").AlgoStatusData;
@@ -78,6 +84,61 @@ export default function LivePage() {
   const algo: AlgoStatus | null = polledAlgo?.running && stream.algo
     ? stream.algo
     : polledAlgo;
+
+  // ── Derived data for chart visualization ──
+
+  // Parse trade markers from algo signals (buy/sell/close events → chart arrows)
+  const tradeMarkers = useMemo<TradeMarkerData[]>(() => {
+    if (!algo?.signals || algo.signals.length === 0) return [];
+    const markers: TradeMarkerData[] = [];
+    for (const sig of algo.signals) {
+      if (!["buy", "sell", "close", "closed"].includes(sig.action)) continue;
+      // Parse price from detail string, e.g. "Opened BUY at 97543.21" or "Closed position … at 97600.00"
+      const priceMatch = sig.detail.match(/at\s+([\d.]+)/i);
+      const price = priceMatch ? parseFloat(priceMatch[1]) : 0;
+      if (price === 0) continue;
+      markers.push({
+        time: Math.floor(new Date(sig.time).getTime() / 1000),
+        type: sig.action === "buy" || sig.action === "sell" ? "entry" : "exit",
+        direction: sig.action as "buy" | "sell" | "close",
+        price,
+        label: sig.action.toUpperCase(),
+      });
+    }
+    return markers;
+  }, [algo?.signals]);
+
+  // Position overlay: entry/SL/TP lines for the active algo position
+  const positionOverlay = useMemo<PositionOverlay | null>(() => {
+    if (!algo?.in_position || !algo.position_ticket) return null;
+    const pos = positions.find((p) => p.ticket === algo.position_ticket);
+    if (!pos) return null;
+    return {
+      entryPrice: pos.open_price,
+      stopLoss: pos.stop_loss || null,
+      takeProfit: pos.take_profit || null,
+      type: pos.type as "buy" | "sell",
+    };
+  }, [algo?.in_position, algo?.position_ticket, positions]);
+
+  // RSI data from historical candles for the RSI subplot
+  const rsiData = useMemo(() => {
+    return historicalCandles
+      .filter((c) => c.RSI_14 != null && !isNaN(Number(c.RSI_14)))
+      .map((c) => ({
+        time: Math.floor(new Date(c.datetime).getTime() / 1000),
+        value: Number(c.RSI_14),
+      }));
+  }, [historicalCandles]);
+
+  // Live RSI from streaming candle indicators
+  const latestRSI = stream.candle?.indicators?.RSI_14 ?? null;
+
+  // Active position for P/L card
+  const activePosition = useMemo(() => {
+    if (!algo?.in_position || !algo.position_ticket) return null;
+    return positions.find((p) => p.ticket === algo.position_ticket) ?? null;
+  }, [algo?.in_position, algo?.position_ticket, positions]);
 
   // Load saved strategies for algo picker — auto-select first if none chosen
   useEffect(() => {
@@ -311,8 +372,67 @@ export default function LivePage() {
             <LiveChart
               historicalCandles={historicalCandles}
               latestCandle={stream.candle}
-              className="h-[280px] sm:h-[400px] w-full"
+              tradeMarkers={tradeMarkers}
+              positionOverlay={positionOverlay}
+              rsiData={rsiData}
+              latestRSI={latestRSI}
+              className="h-[350px] sm:h-[500px] w-full"
             />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Active Position P/L Card */}
+      {activePosition && (
+        <Card className={`border-2 ${activePosition.profit >= 0 ? "border-green-500/50 bg-green-500/5" : "border-red-500/50 bg-red-500/5"}`}>
+          <CardContent className="py-5">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Badge variant={activePosition.type === "buy" ? "default" : "destructive"} className="text-sm px-3 py-1">
+                  {activePosition.type.toUpperCase()}
+                </Badge>
+                <div>
+                  <p className="text-sm text-muted-foreground">
+                    {activePosition.symbol} — #{activePosition.ticket}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Vol: {activePosition.volume} lots
+                  </p>
+                </div>
+              </div>
+              <div className="text-center sm:text-right">
+                <p className={`text-3xl font-bold font-mono ${activePosition.profit >= 0 ? "text-green-500" : "text-red-500"}`}>
+                  {activePosition.profit >= 0 ? "+" : ""}${activePosition.profit.toFixed(2)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">Unrealized P/L</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-border/50">
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase">Entry</p>
+                <p className="text-sm font-mono font-semibold text-blue-500">
+                  {activePosition.open_price.toFixed(activePosition.symbol.includes("BTC") ? 2 : 5)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase">Current</p>
+                <p className="text-sm font-mono font-semibold">
+                  {activePosition.current_price.toFixed(activePosition.symbol.includes("BTC") ? 2 : 5)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase">Stop Loss</p>
+                <p className="text-sm font-mono font-semibold text-red-500">
+                  {activePosition.stop_loss ? activePosition.stop_loss.toFixed(activePosition.symbol.includes("BTC") ? 2 : 5) : "---"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase">Take Profit</p>
+                <p className="text-sm font-mono font-semibold text-green-500">
+                  {activePosition.take_profit ? activePosition.take_profit.toFixed(activePosition.symbol.includes("BTC") ? 2 : 5) : "---"}
+                </p>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}

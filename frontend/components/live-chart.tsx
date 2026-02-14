@@ -4,10 +4,14 @@ import {
   createChart,
   CandlestickSeries,
   LineSeries,
+  LineStyle,
+  createSeriesMarkers,
   type IChartApi,
   type ISeriesApi,
+  type IPriceLine,
   type CandlestickData,
   type Time,
+  type SeriesMarker,
 } from "lightweight-charts";
 import type { CandleData } from "@/hooks/use-live-stream";
 
@@ -23,6 +27,7 @@ interface HistoricalCandle {
   BB_upper?: number;
   BB_middle?: number;
   BB_lower?: number;
+  RSI_14?: number;
 }
 
 // Which overlays to render and their colors
@@ -34,21 +39,59 @@ const OVERLAYS = [
   { key: "BB_lower", color: "#3b82f680", lineWidth: 1, title: "BB Lower" },
 ] as const;
 
+// ── New types for trade visualization ──
+
+export interface TradeMarkerData {
+  time: number; // unix seconds
+  type: "entry" | "exit";
+  direction: "buy" | "sell" | "close";
+  price: number;
+  label: string;
+}
+
+export interface PositionOverlay {
+  entryPrice: number;
+  stopLoss: number | null;
+  takeProfit: number | null;
+  type: "buy" | "sell";
+}
+
+export interface RSIDataPoint {
+  time: number;
+  value: number;
+}
+
 interface LiveChartProps {
   historicalCandles: HistoricalCandle[];
   latestCandle: CandleData | null;
   className?: string;
+  tradeMarkers?: TradeMarkerData[];
+  positionOverlay?: PositionOverlay | null;
+  rsiData?: RSIDataPoint[];
+  latestRSI?: number | null;
 }
 
 export function LiveChart({
   historicalCandles,
   latestCandle,
   className,
+  tradeMarkers,
+  positionOverlay,
+  rsiData,
+  latestRSI,
 }: LiveChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const overlayRefs = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const markersPluginRef = useRef<any>(null);
+  const priceLinesRef = useRef<{
+    entry: IPriceLine | null;
+    sl: IPriceLine | null;
+    tp: IPriceLine | null;
+  }>({ entry: null, sl: null, tp: null });
+  const rsiSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
 
   // Initialize chart once
   useEffect(() => {
@@ -94,7 +137,6 @@ export function LiveChart({
       const newOverlays = new Map<string, ISeriesApi<"Line">>();
       for (const overlay of OVERLAYS) {
         const k = overlay.key as keyof HistoricalCandle;
-        // Check if any candle has this indicator
         const hasData = historicalCandles.some(
           (c) => c[k] != null && !isNaN(Number(c[k]))
         );
@@ -121,6 +163,58 @@ export function LiveChart({
       }
       overlayRefs.current = newOverlays;
 
+      // ── RSI Subplot ──
+      const rsiPoints = rsiData && rsiData.length > 0
+        ? rsiData
+        : historicalCandles
+            .filter((c) => c.RSI_14 != null && !isNaN(Number(c.RSI_14)))
+            .map((c) => ({
+              time: Math.floor(new Date(c.datetime).getTime() / 1000),
+              value: Number(c.RSI_14),
+            }));
+
+      if (rsiPoints.length > 0) {
+        const rsiPane = chart.addPane();
+        // Main chart 75%, RSI pane 25%
+        const panes = chart.panes();
+        if (panes.length >= 2) {
+          panes[0].setStretchFactor(3);
+          panes[1].setStretchFactor(1);
+        }
+
+        const rsiSeries = rsiPane.addSeries(LineSeries, {
+          color: "#f59e0b",
+          lineWidth: 2 as 1 | 2 | 3 | 4,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          crosshairMarkerVisible: true,
+          title: "RSI 14",
+        });
+
+        rsiSeries.setData(
+          rsiPoints.map((d) => ({ time: d.time as Time, value: d.value }))
+        );
+        rsiSeriesRef.current = rsiSeries;
+
+        // Overbought (70) and oversold (30) reference lines
+        rsiSeries.createPriceLine({
+          price: 70,
+          color: "rgba(239, 68, 68, 0.4)",
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: "",
+        });
+        rsiSeries.createPriceLine({
+          price: 30,
+          color: "rgba(34, 197, 94, 0.4)",
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: "",
+        });
+      }
+
       chart.timeScale().fitContent();
     }
 
@@ -137,10 +231,13 @@ export function LiveChart({
       chartRef.current = null;
       seriesRef.current = null;
       overlayRefs.current = new Map();
+      markersPluginRef.current = null;
+      priceLinesRef.current = { entry: null, sl: null, tp: null };
+      rsiSeriesRef.current = null;
     };
-  }, [historicalCandles]);
+  }, [historicalCandles, rsiData]);
 
-  // Update with live candle
+  // ── Update with live candle ──
   useEffect(() => {
     if (!seriesRef.current || !latestCandle) return;
     const time = (Math.floor(new Date(latestCandle.time).getTime() / 1000)) as Time;
@@ -153,7 +250,7 @@ export function LiveChart({
       close: latestCandle.close,
     });
 
-    // Update indicator overlays from live candle indicators
+    // Update indicator overlays
     if (latestCandle.indicators) {
       for (const overlay of OVERLAYS) {
         const lineSeries = overlayRefs.current.get(overlay.key);
@@ -163,7 +260,86 @@ export function LiveChart({
         }
       }
     }
-  }, [latestCandle]);
 
-  return <div ref={containerRef} className={className ?? "h-[400px] w-full"} />;
+    // Update RSI subplot
+    if (rsiSeriesRef.current && latestRSI != null && !isNaN(latestRSI)) {
+      rsiSeriesRef.current.update({ time, value: latestRSI });
+    }
+  }, [latestCandle, latestRSI]);
+
+  // ── Trade markers (entry/exit arrows on chart) ──
+  useEffect(() => {
+    if (!seriesRef.current || !tradeMarkers || tradeMarkers.length === 0) {
+      if (markersPluginRef.current) {
+        markersPluginRef.current.setMarkers([]);
+      }
+      return;
+    }
+
+    const markers: SeriesMarker<Time>[] = tradeMarkers.map((m) => ({
+      time: m.time as Time,
+      position: m.type === "entry" ? ("belowBar" as const) : ("aboveBar" as const),
+      color: m.type === "entry" ? "#22c55e" : "#ef4444",
+      shape: m.type === "entry" ? ("arrowUp" as const) : ("arrowDown" as const),
+      text: m.label,
+    }));
+    markers.sort((a, b) => (a.time as number) - (b.time as number));
+
+    if (markersPluginRef.current) {
+      markersPluginRef.current.setMarkers(markers);
+    } else {
+      markersPluginRef.current = createSeriesMarkers(seriesRef.current, markers);
+    }
+  }, [tradeMarkers]);
+
+  // ── Position overlay lines (entry, SL, TP) ──
+  useEffect(() => {
+    if (!seriesRef.current) return;
+    const series = seriesRef.current;
+
+    // Remove old lines
+    const { entry, sl, tp } = priceLinesRef.current;
+    if (entry) { try { series.removePriceLine(entry); } catch {} }
+    if (sl) { try { series.removePriceLine(sl); } catch {} }
+    if (tp) { try { series.removePriceLine(tp); } catch {} }
+    priceLinesRef.current = { entry: null, sl: null, tp: null };
+
+    if (!positionOverlay) return;
+
+    // Entry price (blue solid)
+    priceLinesRef.current.entry = series.createPriceLine({
+      price: positionOverlay.entryPrice,
+      color: "#3b82f6",
+      lineWidth: 2,
+      lineStyle: LineStyle.Solid,
+      axisLabelVisible: true,
+      title: `ENTRY ${positionOverlay.type.toUpperCase()}`,
+    });
+
+    // Stop Loss (red dashed)
+    if (positionOverlay.stopLoss) {
+      priceLinesRef.current.sl = series.createPriceLine({
+        price: positionOverlay.stopLoss,
+        color: "#ef4444",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: "SL",
+      });
+    }
+
+    // Take Profit (green dashed)
+    if (positionOverlay.takeProfit) {
+      priceLinesRef.current.tp = series.createPriceLine({
+        price: positionOverlay.takeProfit,
+        color: "#22c55e",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: "TP",
+      });
+    }
+  }, [positionOverlay]);
+
+  return <div ref={containerRef} className={className ?? "h-[500px] w-full"} />;
 }
