@@ -89,28 +89,28 @@ export default function LivePage() {
     }).catch(() => {});
   }, []);
 
-  // HTTP poll for live data when WS is not connected
+  // HTTP poll for live data when SSE is not connected
   useEffect(() => {
     if (stream.status === "connected" || !liveStarted) {
       if (liveInterval.current) { clearInterval(liveInterval.current); liveInterval.current = null; }
       return;
     }
-    // WS failed or disconnected — poll via HTTP
+    // SSE failed or disconnected — poll via HTTP every 1s
     const poll = () => {
       api.mt5.price(symbol).then(setPolledPrice).catch(() => {});
       api.mt5.account().then(setPolledAccount).catch(() => {});
       api.mt5.positions().then(setPolledPositions).catch(() => {});
     };
     poll();
-    liveInterval.current = setInterval(poll, 2000);
+    liveInterval.current = setInterval(poll, 1000);
     return () => { if (liveInterval.current) clearInterval(liveInterval.current); };
   }, [stream.status, liveStarted, symbol]);
 
-  // HTTP poll as baseline (2s) for algo; WS overlays real-time when connected
+  // HTTP poll as baseline (1s) for algo; SSE overlays real-time when connected
   useEffect(() => {
     const poll = () => api.algo.status().then(setPolledAlgo).catch(() => {});
     poll();
-    algoInterval.current = setInterval(poll, 2000);
+    algoInterval.current = setInterval(poll, 1000);
     return () => { if (algoInterval.current) clearInterval(algoInterval.current); };
   }, []);
 

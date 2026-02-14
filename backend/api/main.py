@@ -1092,7 +1092,7 @@ async def _sse_live_generator(request: Request, symbol: str, timeframe: str):
 
         tick_counter += 1
 
-        # Price tick — every iteration (~500ms)
+        # Price — every tick (~200ms = ~5 updates/sec)
         try:
             price = await loop.run_in_executor(
                 mt5_executor, connector.get_symbol_price, symbol
@@ -1101,51 +1101,48 @@ async def _sse_live_generator(request: Request, symbol: str, timeframe: str):
         except Exception:
             pass
 
-        # Positions — every 2nd tick (~1s)
-        if tick_counter % 2 == 0:
-            try:
-                positions = await loop.run_in_executor(
-                    mt5_executor, connector.get_positions
-                )
-                yield _sse_event("positions", {"data": positions})
-            except Exception:
-                pass
+        # Positions — every tick
+        try:
+            positions = await loop.run_in_executor(
+                mt5_executor, connector.get_positions
+            )
+            yield _sse_event("positions", {"data": positions})
+        except Exception:
+            pass
 
-        # Account info — every 4th tick (~2s)
-        if tick_counter % 4 == 0:
-            try:
-                account = await loop.run_in_executor(
-                    mt5_executor, connector.get_account_info
-                )
-                yield _sse_event("account", account)
-            except Exception:
-                pass
+        # Account — every tick
+        try:
+            account = await loop.run_in_executor(
+                mt5_executor, connector.get_account_info
+            )
+            yield _sse_event("account", account)
+        except Exception:
+            pass
 
-        # Algo status — every 2nd tick (~1s) when running
-        if tick_counter % 2 == 0 and algo_state["running"]:
-            try:
-                algo_data = {
-                    "running": algo_state["running"],
-                    "symbol": algo_state["symbol"],
-                    "timeframe": algo_state["timeframe"],
-                    "strategy_name": algo_state["strategy_name"],
-                    "volume": algo_state["volume"],
-                    "in_position": algo_state["in_position"],
-                    "position_ticket": algo_state["position_ticket"],
-                    "trades_placed": algo_state["trades_placed"],
-                    "signals": algo_state["signals"][-20:],
-                    "current_price": algo_state["current_price"],
-                    "indicators": algo_state["indicators"],
-                    "entry_conditions": algo_state["entry_conditions"],
-                    "exit_conditions": algo_state["exit_conditions"],
-                    "last_check": algo_state["last_check"],
-                }
-                yield _sse_event("algo", algo_data)
-            except Exception:
-                pass
+        # Algo status — every tick (reads in-memory, zero cost)
+        try:
+            algo_data = {
+                "running": algo_state["running"],
+                "symbol": algo_state["symbol"],
+                "timeframe": algo_state["timeframe"],
+                "strategy_name": algo_state["strategy_name"],
+                "volume": algo_state["volume"],
+                "in_position": algo_state["in_position"],
+                "position_ticket": algo_state["position_ticket"],
+                "trades_placed": algo_state["trades_placed"],
+                "signals": algo_state["signals"][-20:],
+                "current_price": algo_state["current_price"],
+                "indicators": algo_state["indicators"],
+                "entry_conditions": algo_state["entry_conditions"],
+                "exit_conditions": algo_state["exit_conditions"],
+                "last_check": algo_state["last_check"],
+            }
+            yield _sse_event("algo", algo_data)
+        except Exception:
+            pass
 
-        # Candle + indicators — every 10th tick (~5s)
-        if tick_counter % 10 == 0:
+        # Candle + indicators — every 5th tick (~1s, heavier computation)
+        if tick_counter % 5 == 0:
             try:
                 from backend.core.indicators import add_all_indicators, get_indicator_snapshot
                 df = await loop.run_in_executor(
@@ -1167,11 +1164,11 @@ async def _sse_live_generator(request: Request, symbol: str, timeframe: str):
             except Exception:
                 pass
 
-        # Keepalive comment — every 30th tick (~15s)
-        if tick_counter % 30 == 0:
+        # Keepalive — every 150th tick (~30s)
+        if tick_counter % 150 == 0:
             yield ": keepalive\n\n"
 
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.2)
 
 
 @app.get("/api/sse/live")
@@ -1206,6 +1203,7 @@ async def _sse_ticker_generator(request: Request, symbol: str):
 
         tick_counter += 1
 
+        # Price — every tick (~500ms)
         try:
             price = await loop.run_in_executor(
                 mt5_executor, connector.get_symbol_price, symbol
@@ -1214,29 +1212,27 @@ async def _sse_ticker_generator(request: Request, symbol: str):
         except Exception:
             pass
 
-        # Account every 4th tick (~4s)
-        if tick_counter % 4 == 0:
-            try:
-                account = await loop.run_in_executor(
-                    mt5_executor, connector.get_account_info
-                )
-                yield _sse_event("account", account)
-            except Exception:
-                pass
+        # Account — every tick
+        try:
+            account = await loop.run_in_executor(
+                mt5_executor, connector.get_account_info
+            )
+            yield _sse_event("account", account)
+        except Exception:
+            pass
 
-        # Algo running status — every 2nd tick (~2s)
-        if tick_counter % 2 == 0:
-            yield _sse_event("algo_status", {
-                "running": algo_state["running"],
-                "symbol": algo_state["symbol"],
-                "trades_placed": algo_state["trades_placed"],
-                "in_position": algo_state["in_position"],
-            })
+        # Algo status — every tick (in-memory read)
+        yield _sse_event("algo_status", {
+            "running": algo_state["running"],
+            "symbol": algo_state["symbol"],
+            "trades_placed": algo_state["trades_placed"],
+            "in_position": algo_state["in_position"],
+        })
 
-        if tick_counter % 30 == 0:
+        if tick_counter % 60 == 0:
             yield ": keepalive\n\n"
 
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
 
 
 @app.get("/api/sse/ticker")
