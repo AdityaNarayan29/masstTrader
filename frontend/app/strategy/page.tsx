@@ -30,10 +30,15 @@ interface Rule {
   name: string;
   timeframe: string;
   description: string;
+  direction?: string;
   entry_conditions: Condition[];
   exit_conditions: Condition[];
   stop_loss_pips: number | null;
   take_profit_pips: number | null;
+  stop_loss_atr_multiplier?: number | null;
+  take_profit_atr_multiplier?: number | null;
+  min_bars_in_trade?: number | null;
+  additional_timeframes?: string[] | null;
 }
 
 interface Strategy {
@@ -47,6 +52,12 @@ interface Strategy {
   updated_at?: string;
 }
 
+interface ValidationResult {
+  errors: string[];
+  warnings: string[];
+  valid: boolean;
+}
+
 interface StrategySummary {
   id: string;
   name: string;
@@ -57,15 +68,32 @@ interface StrategySummary {
 }
 
 const AVAILABLE_INDICATORS = [
+  { name: "close/open/high/low", label: "Price columns" },
   { name: "RSI", label: "Relative Strength Index" },
   { name: "MACD", label: "Line, Signal, Histogram" },
-  { name: "EMA", label: "Exponential Moving Avg" },
-  { name: "SMA", label: "Simple Moving Avg" },
-  { name: "Bollinger Bands", label: "Upper, Mid, Lower" },
+  { name: "EMA_{period}", label: "Exponential Moving Avg" },
+  { name: "SMA_{period}", label: "Simple Moving Avg" },
+  { name: "Bollinger", label: "Upper, Mid, Lower, Width" },
   { name: "ATR", label: "Average True Range" },
   { name: "Stochastic", label: "K, D" },
-  { name: "ADX", label: "Trend Strength" },
+  { name: "ADX", label: "Trend Strength, DI+/DI-" },
   { name: "Volume", label: "OBV, Ratio" },
+];
+
+const INDICATOR_OPTIONS = [
+  "close", "open", "high", "low",
+  "RSI", "MACD", "EMA_50", "EMA_20", "EMA_200", "SMA_20", "SMA_50",
+  "Bollinger", "ATR", "Stochastic", "ADX", "Volume",
+];
+
+const OPERATOR_OPTIONS = [
+  { value: ">", label: ">" },
+  { value: "<", label: "<" },
+  { value: "==", label: "==" },
+  { value: ">=", label: ">=" },
+  { value: "<=", label: "<=" },
+  { value: "crosses_above", label: "crosses above" },
+  { value: "crosses_below", label: "crosses below" },
 ];
 
 export default function StrategyPage() {
@@ -81,6 +109,7 @@ export default function StrategyPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [validation, setValidation] = useState<ValidationResult | null>(null);
 
   useEffect(() => {
     api.strategies.list().then(setSavedStrategies).catch(() => {});
@@ -97,7 +126,11 @@ export default function StrategyPage() {
     try {
       const result = await api.strategy.parse(description, symbol);
       setStrategy(result as Strategy);
-      // If we were editing a saved strategy, keep the editingId so "Update" shows
+      // Auto-validate the parsed strategy
+      try {
+        const v = await api.strategy.validate();
+        setValidation(v);
+      } catch { setValidation(null); }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to parse strategy");
     } finally {
@@ -163,6 +196,44 @@ export default function StrategyPage() {
     setStrategy(null);
     setDescription("");
     setSymbol("EURUSD");
+    setValidation(null);
+  };
+
+  // Condition editing helpers
+  const updateCondition = (
+    ruleIdx: number,
+    type: "entry_conditions" | "exit_conditions",
+    condIdx: number,
+    field: keyof Condition,
+    value: string | number,
+  ) => {
+    if (!strategy) return;
+    const updated = { ...strategy, rules: strategy.rules.map((r, ri) => {
+      if (ri !== ruleIdx) return r;
+      return { ...r, [type]: r[type].map((c, ci) => {
+        if (ci !== condIdx) return c;
+        const newVal = field === "value" ? (isNaN(Number(value)) ? value : Number(value)) : value;
+        return { ...c, [field]: newVal };
+      })};
+    })};
+    setStrategy(updated);
+  };
+
+  const removeCondition = (ruleIdx: number, type: "entry_conditions" | "exit_conditions", condIdx: number) => {
+    if (!strategy) return;
+    setStrategy({ ...strategy, rules: strategy.rules.map((r, ri) => {
+      if (ri !== ruleIdx) return r;
+      return { ...r, [type]: r[type].filter((_, ci) => ci !== condIdx) };
+    })});
+  };
+
+  const addCondition = (ruleIdx: number, type: "entry_conditions" | "exit_conditions") => {
+    if (!strategy) return;
+    const newCond: Condition = { indicator: "close", parameter: "value", operator: ">", value: 0, description: "" };
+    setStrategy({ ...strategy, rules: strategy.rules.map((r, ri) => {
+      if (ri !== ruleIdx) return r;
+      return { ...r, [type]: [...r[type], newCond] };
+    })});
   };
 
   return (
@@ -313,6 +384,29 @@ export default function StrategyPage() {
       {/* Parsed Strategy Results */}
       {strategy && (
         <div className="space-y-4">
+          {/* Validation Banner */}
+          {validation && (
+            <div className="space-y-2">
+              {validation.errors.length > 0 && (
+                <div className="bg-destructive/10 border border-destructive/30 text-destructive px-4 py-3 rounded-lg text-sm space-y-1">
+                  <p className="font-semibold">Errors (must fix)</p>
+                  {validation.errors.map((e, i) => <p key={i}>- {e}</p>)}
+                </div>
+              )}
+              {validation.warnings.length > 0 && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 text-yellow-600 dark:text-yellow-400 px-4 py-3 rounded-lg text-sm space-y-1">
+                  <p className="font-semibold">Warnings</p>
+                  {validation.warnings.map((w, i) => <p key={i}>- {w}</p>)}
+                </div>
+              )}
+              {validation.valid && validation.warnings.length === 0 && (
+                <div className="bg-green-500/10 border border-green-500/30 text-green-600 dark:text-green-400 px-4 py-3 rounded-lg text-sm">
+                  Strategy validated successfully
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Strategy Overview */}
           <Card>
             <CardHeader>
@@ -348,86 +442,159 @@ export default function StrategyPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Entry Conditions */}
+                  {/* Entry Conditions — Editable */}
                   <div className="space-y-3">
                     <h4 className="text-xs font-semibold uppercase tracking-wide text-green-500">
                       Entry Conditions
                     </h4>
                     <div className="space-y-2">
                       {rule.entry_conditions.map((c, j) => (
-                        <div
-                          key={j}
-                          className="flex items-start gap-2 rounded-md border border-green-500/20 bg-green-500/5 px-3 py-2"
-                        >
-                          <span className="text-green-500 font-bold text-sm leading-5 shrink-0">
-                            +
-                          </span>
-                          <div>
-                            <p className="text-sm">{c.description}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {c.indicator} {c.parameter} {c.operator}{" "}
-                              {c.value}
-                            </p>
+                        <div key={j} className="rounded-md border border-green-500/20 bg-green-500/5 px-3 py-2 space-y-1.5">
+                          <p className="text-xs text-muted-foreground">{c.description}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <select
+                              className="h-7 rounded border bg-background px-1.5 text-xs"
+                              value={c.indicator}
+                              onChange={(e) => updateCondition(i, "entry_conditions", j, "indicator", e.target.value)}
+                            >
+                              {INDICATOR_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                              {!INDICATOR_OPTIONS.includes(c.indicator) && (
+                                <option value={c.indicator}>{c.indicator}</option>
+                              )}
+                            </select>
+                            <Input
+                              className="h-7 w-16 text-xs px-1.5"
+                              value={c.parameter}
+                              onChange={(e) => updateCondition(i, "entry_conditions", j, "parameter", e.target.value)}
+                            />
+                            <select
+                              className="h-7 rounded border bg-background px-1.5 text-xs"
+                              value={c.operator}
+                              onChange={(e) => updateCondition(i, "entry_conditions", j, "operator", e.target.value)}
+                            >
+                              {OPERATOR_OPTIONS.map((op) => <option key={op.value} value={op.value}>{op.label}</option>)}
+                            </select>
+                            <Input
+                              className="h-7 w-20 text-xs px-1.5"
+                              value={String(c.value)}
+                              onChange={(e) => updateCondition(i, "entry_conditions", j, "value", e.target.value)}
+                            />
+                            <button
+                              className="text-destructive/60 hover:text-destructive text-xs px-1"
+                              onClick={() => removeCondition(i, "entry_conditions", j)}
+                              title="Remove condition"
+                            >x</button>
                           </div>
                         </div>
                       ))}
+                      <button
+                        className="text-xs text-green-500 hover:text-green-400"
+                        onClick={() => addCondition(i, "entry_conditions")}
+                      >+ Add entry condition</button>
                     </div>
                   </div>
 
-                  {/* Exit Conditions */}
+                  {/* Exit Conditions — Editable */}
                   <div className="space-y-3">
                     <h4 className="text-xs font-semibold uppercase tracking-wide text-red-500">
                       Exit Conditions
                     </h4>
                     <div className="space-y-2">
                       {rule.exit_conditions.map((c, j) => (
-                        <div
-                          key={j}
-                          className="flex items-start gap-2 rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2"
-                        >
-                          <span className="text-red-500 font-bold text-sm leading-5 shrink-0">
-                            -
-                          </span>
-                          <div>
-                            <p className="text-sm">{c.description}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {c.indicator} {c.parameter} {c.operator}{" "}
-                              {c.value}
-                            </p>
+                        <div key={j} className="rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2 space-y-1.5">
+                          <p className="text-xs text-muted-foreground">{c.description}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <select
+                              className="h-7 rounded border bg-background px-1.5 text-xs"
+                              value={c.indicator}
+                              onChange={(e) => updateCondition(i, "exit_conditions", j, "indicator", e.target.value)}
+                            >
+                              {INDICATOR_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                              {!INDICATOR_OPTIONS.includes(c.indicator) && (
+                                <option value={c.indicator}>{c.indicator}</option>
+                              )}
+                            </select>
+                            <Input
+                              className="h-7 w-16 text-xs px-1.5"
+                              value={c.parameter}
+                              onChange={(e) => updateCondition(i, "exit_conditions", j, "parameter", e.target.value)}
+                            />
+                            <select
+                              className="h-7 rounded border bg-background px-1.5 text-xs"
+                              value={c.operator}
+                              onChange={(e) => updateCondition(i, "exit_conditions", j, "operator", e.target.value)}
+                            >
+                              {OPERATOR_OPTIONS.map((op) => <option key={op.value} value={op.value}>{op.label}</option>)}
+                            </select>
+                            <Input
+                              className="h-7 w-20 text-xs px-1.5"
+                              value={String(c.value)}
+                              onChange={(e) => updateCondition(i, "exit_conditions", j, "value", e.target.value)}
+                            />
+                            <button
+                              className="text-destructive/60 hover:text-destructive text-xs px-1"
+                              onClick={() => removeCondition(i, "exit_conditions", j)}
+                              title="Remove condition"
+                            >x</button>
                           </div>
                         </div>
                       ))}
+                      <button
+                        className="text-xs text-red-500 hover:text-red-400"
+                        onClick={() => addCondition(i, "exit_conditions")}
+                      >+ Add exit condition</button>
                     </div>
                   </div>
                 </div>
 
-                {/* Stop Loss / Take Profit */}
-                {(rule.stop_loss_pips !== null ||
-                  rule.take_profit_pips !== null) && (
-                  <>
-                    <Separator />
-                    <div className="flex gap-4 items-center">
-                      {rule.stop_loss_pips !== null && (
-                        <div className="flex items-center gap-2">
-                          <Badge variant="destructive">SL</Badge>
-                          <span className="text-sm">
-                            {rule.stop_loss_pips} pips
-                          </span>
-                        </div>
-                      )}
-                      {rule.take_profit_pips !== null && (
-                        <div className="flex items-center gap-2">
-                          <Badge className="bg-green-600 hover:bg-green-600/90 text-white">
-                            TP
-                          </Badge>
-                          <span className="text-sm">
-                            {rule.take_profit_pips} pips
-                          </span>
-                        </div>
-                      )}
+                {/* Risk Management — SL/TP/min_bars/TF */}
+                <Separator />
+                <div className="flex flex-wrap gap-4 items-center">
+                  {rule.stop_loss_atr_multiplier != null && (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="destructive">SL</Badge>
+                      <span className="text-sm">{rule.stop_loss_atr_multiplier}x ATR</span>
                     </div>
-                  </>
-                )}
+                  )}
+                  {rule.stop_loss_pips != null && !rule.stop_loss_atr_multiplier && (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="destructive">SL</Badge>
+                      <span className="text-sm">{rule.stop_loss_pips} pips</span>
+                    </div>
+                  )}
+                  {rule.take_profit_atr_multiplier != null && (
+                    <div className="flex items-center gap-2">
+                      <Badge className="bg-green-600 hover:bg-green-600/90 text-white">TP</Badge>
+                      <span className="text-sm">{rule.take_profit_atr_multiplier}x ATR</span>
+                    </div>
+                  )}
+                  {rule.take_profit_pips != null && !rule.take_profit_atr_multiplier && (
+                    <div className="flex items-center gap-2">
+                      <Badge className="bg-green-600 hover:bg-green-600/90 text-white">TP</Badge>
+                      <span className="text-sm">{rule.take_profit_pips} pips</span>
+                    </div>
+                  )}
+                  {rule.min_bars_in_trade != null && (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">Min Hold</Badge>
+                      <span className="text-sm">{rule.min_bars_in_trade} bars</span>
+                    </div>
+                  )}
+                  {rule.additional_timeframes && rule.additional_timeframes.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">Multi-TF</Badge>
+                      <span className="text-sm">{rule.additional_timeframes.join(", ")}</span>
+                    </div>
+                  )}
+                  {rule.direction && (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary">{rule.direction.toUpperCase()}</Badge>
+                    </div>
+                  )}
+                  {!rule.stop_loss_pips && !rule.stop_loss_atr_multiplier && !rule.take_profit_pips && !rule.take_profit_atr_multiplier && (
+                    <span className="text-xs text-muted-foreground">No SL/TP defined</span>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))}

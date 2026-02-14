@@ -37,6 +37,10 @@ class StrategyRule(BaseModel):
     exit_conditions: list[IndicatorCondition]
     stop_loss_pips: Optional[float] = None
     take_profit_pips: Optional[float] = None
+    stop_loss_atr_multiplier: Optional[float] = None   # e.g. 1.5 → SL = ATR × 1.5
+    take_profit_atr_multiplier: Optional[float] = None  # e.g. 3.75 → TP = ATR × 3.75
+    min_bars_in_trade: Optional[int] = None             # exit gated until N candles
+    additional_timeframes: Optional[list[str]] = None    # e.g. ["4h"] for multi-TF
     risk_percent: float = 1.0  # risk per trade as % of balance
     description: str = ""
 

@@ -113,6 +113,16 @@ export default function AlgoPage() {
 
   const positionOverlay = useMemo<PositionOverlay | null>(() => {
     if (!algo?.in_position || !algo.position_ticket) return null;
+    // Prefer trade_state (has calculated SL/TP), fall back to MT5 position
+    const ts = algo.trade_state;
+    if (ts) {
+      return {
+        entryPrice: ts.entry_price,
+        stopLoss: ts.sl_price,
+        takeProfit: ts.tp_price,
+        type: ts.direction as "buy" | "sell",
+      };
+    }
     const pos = positions.find((p) => p.ticket === algo.position_ticket);
     if (!pos) return null;
     return {
@@ -121,7 +131,7 @@ export default function AlgoPage() {
       takeProfit: pos.take_profit || null,
       type: pos.type as "buy" | "sell",
     };
-  }, [algo?.in_position, algo?.position_ticket, positions]);
+  }, [algo?.in_position, algo?.position_ticket, algo?.trade_state, positions]);
 
   const rsiData = useMemo(() => {
     return historicalCandles
@@ -378,11 +388,23 @@ export default function AlgoPage() {
                 <Badge variant="outline" className="text-[10px]">{selectedStrategy.symbol}</Badge>
                 <Badge variant="outline" className="text-[10px]">{selectedStrategy.timeframe}</Badge>
                 <Badge variant="outline" className="text-[10px]">{selectedStrategy.direction.toUpperCase()}</Badge>
-                {selectedStrategy.stop_loss_pips != null && (
+                {selectedStrategy.stop_loss_atr_multiplier != null && (
+                  <Badge variant="destructive" className="text-[10px]">SL {selectedStrategy.stop_loss_atr_multiplier}x ATR</Badge>
+                )}
+                {selectedStrategy.stop_loss_pips != null && !selectedStrategy.stop_loss_atr_multiplier && (
                   <Badge variant="destructive" className="text-[10px]">SL {selectedStrategy.stop_loss_pips} pips</Badge>
                 )}
-                {selectedStrategy.take_profit_pips != null && (
+                {selectedStrategy.take_profit_atr_multiplier != null && (
+                  <Badge className="bg-green-600 hover:bg-green-600/90 text-white text-[10px]">TP {selectedStrategy.take_profit_atr_multiplier}x ATR</Badge>
+                )}
+                {selectedStrategy.take_profit_pips != null && !selectedStrategy.take_profit_atr_multiplier && (
                   <Badge className="bg-green-600 hover:bg-green-600/90 text-white text-[10px]">TP {selectedStrategy.take_profit_pips} pips</Badge>
+                )}
+                {selectedStrategy.min_bars_in_trade != null && (
+                  <Badge variant="outline" className="text-[10px]">Min {selectedStrategy.min_bars_in_trade} bars</Badge>
+                )}
+                {selectedStrategy.additional_timeframes && selectedStrategy.additional_timeframes.length > 0 && (
+                  <Badge variant="outline" className="text-[10px]">+{selectedStrategy.additional_timeframes.join(",")}</Badge>
                 )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -548,6 +570,55 @@ export default function AlgoPage() {
         </Card>
       )}
 
+      {/* TradeState Card — shows calculated entry/SL/TP from algo engine */}
+      {algo?.trade_state && algo.in_position && (
+        <Card className="border border-blue-500/30 bg-blue-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-blue-500">Trade State (Engine Calculated)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase">Direction</p>
+                <Badge variant={algo.trade_state.direction === "buy" ? "default" : "destructive"} className="mt-0.5">
+                  {algo.trade_state.direction.toUpperCase()}
+                </Badge>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase">Entry</p>
+                <p className="text-sm font-mono font-semibold text-blue-500">
+                  {algo.trade_state.entry_price.toFixed(symbol.includes("BTC") ? 2 : 5)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase">SL</p>
+                <p className="text-sm font-mono font-semibold text-red-500">
+                  {algo.trade_state.sl_price ? algo.trade_state.sl_price.toFixed(symbol.includes("BTC") ? 2 : 5) : "---"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase">TP</p>
+                <p className="text-sm font-mono font-semibold text-green-500">
+                  {algo.trade_state.tp_price ? algo.trade_state.tp_price.toFixed(symbol.includes("BTC") ? 2 : 5) : "---"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase">Bars Held</p>
+                <p className="text-sm font-mono font-semibold">{algo.trade_state.bars_since_entry}</p>
+                {algo.trade_state.atr_at_entry != null && (
+                  <p className="text-[10px] text-muted-foreground">ATR: {algo.trade_state.atr_at_entry.toFixed(5)}</p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-4 mt-2 text-[10px] text-muted-foreground">
+              <span>Vol: {algo.trade_state.volume}</span>
+              <span>Ticket: #{algo.trade_state.ticket}</span>
+              <span>Entry: {new Date(algo.trade_state.entry_time).toLocaleTimeString()}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Account Info */}
       {account && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -687,11 +758,11 @@ export default function AlgoPage() {
             {algo.signals.length > 0 && (
               <div>
                 <p className="text-xs font-semibold uppercase text-muted-foreground mb-2">Signal Log</p>
-                <div className="rounded-md border max-h-48 overflow-y-auto">
-                  <div className="p-3 space-y-1">
+                <div className="rounded-md border max-h-64 overflow-y-auto">
+                  <div className="p-3 space-y-1.5">
                     {[...algo.signals].reverse().map((sig, i) => (
                       <div key={i} className="flex items-start gap-2 text-xs">
-                        <span className="text-muted-foreground font-mono shrink-0">
+                        <span className="text-muted-foreground font-mono shrink-0 w-16">
                           {new Date(sig.time).toLocaleTimeString()}
                         </span>
                         <Badge
@@ -702,13 +773,31 @@ export default function AlgoPage() {
                                 ? "secondary"
                                 : sig.action === "error"
                                   ? "destructive"
-                                  : "outline"
+                                  : sig.action === "warn"
+                                    ? "outline"
+                                    : "outline"
                           }
-                          className="text-[10px] shrink-0"
+                          className={`text-[10px] shrink-0 w-14 justify-center ${
+                            sig.action === "warn" ? "border-yellow-500/50 text-yellow-500" : ""
+                          }`}
                         >
                           {sig.action.toUpperCase()}
                         </Badge>
-                        <span className="text-muted-foreground">{sig.detail}</span>
+                        <span className="text-muted-foreground font-mono break-all">
+                          {/* Highlight pass/fail markers in signal details */}
+                          {sig.detail.split(" | ").map((part, pi) => {
+                            const hasPass = part.endsWith("+");
+                            const hasFail = part.endsWith("-");
+                            return (
+                              <span key={pi}>
+                                {pi > 0 && <span className="text-border mx-0.5">|</span>}
+                                <span className={hasPass ? "text-green-500" : hasFail ? "text-red-500" : ""}>
+                                  {part}
+                                </span>
+                              </span>
+                            );
+                          })}
+                        </span>
                       </div>
                     ))}
                   </div>

@@ -93,11 +93,15 @@ export const api = {
       request<{
         name: string;
         rules: Array<{
-          name: string; timeframe: string; description: string;
+          name: string; timeframe: string; description: string; direction?: string;
           entry_conditions: Array<{ indicator: string; parameter: string; operator: string; value: number | string; description: string }>;
           exit_conditions: Array<{ indicator: string; parameter: string; operator: string; value: number | string; description: string }>;
           stop_loss_pips: number | null;
           take_profit_pips: number | null;
+          stop_loss_atr_multiplier: number | null;
+          take_profit_atr_multiplier: number | null;
+          min_bars_in_trade: number | null;
+          additional_timeframes: string[] | null;
         }>;
         ai_explanation: string;
         symbol: string;
@@ -107,6 +111,10 @@ export const api = {
         body: JSON.stringify({ description, symbol }),
       }),
     current: () => request("/api/strategy/current"),
+    validate: () =>
+      request<{ errors: string[]; warnings: string[]; valid: boolean }>(
+        "/api/strategy/validate", { method: "POST" }
+      ),
   },
 
   strategies: {
@@ -118,6 +126,10 @@ export const api = {
         exit_conditions: Array<{ indicator: string; parameter: string; operator: string; value: number | string; description: string }>;
         stop_loss_pips: number | null;
         take_profit_pips: number | null;
+        stop_loss_atr_multiplier: number | null;
+        take_profit_atr_multiplier: number | null;
+        min_bars_in_trade: number | null;
+        additional_timeframes: string[] | null;
         rule_count: number; created_at: string; updated_at: string;
       }>>("/api/strategies"),
     get: (id: string) =>
@@ -249,6 +261,12 @@ export const api = {
           operator: string; value: number | string; passed: boolean;
         }>;
         last_check: string | null;
+        trade_state: {
+          ticket: number; entry_price: number;
+          sl_price: number | null; tp_price: number | null;
+          direction: string; volume: number; entry_time: string;
+          bars_since_entry: number; atr_at_entry: number | null;
+        } | null;
       }>("/api/algo/status"),
   },
 

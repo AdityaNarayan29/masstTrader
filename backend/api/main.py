@@ -103,6 +103,8 @@ algo_state = {
     "exit_conditions": [],           # conditions with pass/fail status
     "last_check": None,              # ISO timestamp of last evaluation
     "strategy_rules": None,          # the rule being used
+    # TradeState — structured trade lifecycle tracking
+    "trade_state": None,             # dict when in position, None otherwise
 }
 algo_thread = None
 algo_stop_event = threading.Event()
@@ -505,6 +507,51 @@ def load_strategy_endpoint(strategy_id: str):
 
 
 # ──────────────────────────────────────
+# STRATEGY VALIDATION
+# ──────────────────────────────────────
+
+@app.post("/api/strategy/validate")
+def validate_strategy_endpoint():
+    """Check a strategy for common issues before going live."""
+    warnings = []
+    errors = []
+
+    strategy = current_strategy
+    if not strategy:
+        errors.append("No strategy loaded")
+        return {"errors": errors, "warnings": warnings, "valid": False}
+
+    for i, rule in enumerate(strategy.get("rules", [])):
+        prefix = f"Rule {i+1}"
+
+        for ctype in ("entry_conditions", "exit_conditions"):
+            for c in rule.get(ctype, []):
+                ind = c.get("indicator", "")
+                val = c.get("value")
+                op = c.get("operator", "")
+                # EMA/SMA > 0 is meaningless (always true for positive prices)
+                if ind.startswith(("EMA", "SMA")) and val == 0 and op in (">", ">="):
+                    errors.append(f"{prefix}: '{ind} {op} 0' is always true — use 'close {op} {ind}' instead")
+                # ATR < 0 is impossible (ATR is always positive)
+                if ind == "ATR" and op == "<" and isinstance(val, (int, float)) and val <= 0:
+                    errors.append(f"{prefix}: 'ATR < {val}' is always false — ATR is always positive")
+
+        # Missing exit conditions and no SL
+        if not rule.get("exit_conditions") and not rule.get("stop_loss_pips") and not rule.get("stop_loss_atr_multiplier"):
+            errors.append(f"{prefix}: No exit conditions and no stop loss — unlimited risk")
+
+        # No SL at all
+        if not rule.get("stop_loss_pips") and not rule.get("stop_loss_atr_multiplier"):
+            warnings.append(f"{prefix}: No stop loss defined — relying only on exit conditions")
+
+        # No TP
+        if not rule.get("take_profit_pips") and not rule.get("take_profit_atr_multiplier"):
+            warnings.append(f"{prefix}: No take profit defined")
+
+    return {"errors": errors, "warnings": warnings, "valid": len(errors) == 0}
+
+
+# ──────────────────────────────────────
 # BACKTEST ENDPOINTS
 # ──────────────────────────────────────
 
@@ -547,6 +594,23 @@ def run_backtest_endpoint(req: BacktestRequest):
         rules = current_strategy.get("rules", [])
         if not rules:
             raise HTTPException(status_code=400, detail="Strategy has no rules")
+
+        # Multi-TF: merge higher-timeframe indicator values into primary df
+        additional_tfs = rules[0].get("additional_timeframes") or []
+        if additional_tfs and connector and connector.is_connected:
+            from backend.core.indicators import add_all_indicators as _add_ind
+            for atf in additional_tfs:
+                try:
+                    df_atf = connector.get_history(bt_symbol, atf, req.bars)
+                    df_atf = _add_ind(df_atf)
+                    df_atf = df_atf.dropna()
+                    if len(df_atf) > 0:
+                        last_atf = df_atf.iloc[-1]
+                        for col in df_atf.columns:
+                            if col not in ("open", "high", "low", "close", "volume", "datetime", "index"):
+                                df[f"{col}_{atf}"] = last_atf[col]
+                except Exception:
+                    pass
 
         result = run_backtest(
             df, rules[0],
@@ -698,10 +762,22 @@ def _add_signal(action: str, detail: str):
         algo_state["signals"] = algo_state["signals"][-50:]
 
 
+def _calculate_lot_size(equity, risk_percent, sl_distance, tick_value, tick_size, volume_min, volume_max, volume_step):
+    """Calculate dynamic lot size based on equity, risk %, and SL distance."""
+    if sl_distance <= 0 or tick_size <= 0 or tick_value <= 0:
+        return volume_min
+    risk_amount = equity * (risk_percent / 100.0)
+    ticks_in_sl = sl_distance / tick_size
+    value_per_lot = ticks_in_sl * tick_value
+    lots = risk_amount / value_per_lot if value_per_lot > 0 else volume_min
+    lots = round(lots / volume_step) * volume_step
+    return max(volume_min, min(volume_max, round(lots, 8)))
+
+
 def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
     """Background thread: monitors market and trades based on strategy rules."""
     from backend.core.indicators import add_all_indicators, get_indicator_snapshot
-    from backend.core.backtester import evaluate_condition
+    from backend.core.backtester import evaluate_condition, _resolve_column
     from datetime import datetime, timezone
 
     try:
@@ -715,22 +791,43 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
         exit_conditions = rule.get("exit_conditions", [])
         sl_pips = rule.get("stop_loss_pips")
         tp_pips = rule.get("take_profit_pips")
+        sl_atr_mult = rule.get("stop_loss_atr_multiplier")
+        tp_atr_mult = rule.get("take_profit_atr_multiplier")
+        min_bars = rule.get("min_bars_in_trade") or 0
+        risk_percent = rule.get("risk_percent", 1.0)
+        additional_tfs = rule.get("additional_timeframes") or []
         direction = rule.get("direction", "buy")  # "buy" or "sell"
         algo_state["strategy_rules"] = rule
 
         connector.select_symbol(symbol)
 
-        # Get pip value from symbol info (point * 10 for 5-digit/3-digit brokers)
+        # Get pip value and symbol sizing info
         try:
             sym_info = connector.get_symbol_info(symbol)
-            pip_value = sym_info["point"] * 10  # 0.00001 * 10 = 0.0001 for EUR, 0.001 * 10 = 0.01 for JPY
+            pip_value = sym_info["point"] * 10
+            tick_value = sym_info.get("trade_tick_value", 0.00001)
+            tick_size = sym_info.get("trade_tick_size", 0.00001)
+            vol_min = sym_info.get("volume_min", 0.01)
+            vol_max = sym_info.get("volume_max", 100.0)
+            vol_step = sym_info.get("volume_step", 0.01)
         except Exception:
-            pip_value = 0.0001  # fallback for standard forex
+            pip_value = 0.0001
+            tick_value = 0.00001
+            tick_size = 0.00001
+            vol_min = 0.01
+            vol_max = 100.0
+            vol_step = 0.01
 
-        _add_signal("start", f"Algo started: {symbol} / {timeframe} / vol={volume} / {direction} / pip={pip_value}")
+        sl_mode = "ATR" if sl_atr_mult else ("pips" if sl_pips else "none")
+        tp_mode = "ATR" if tp_atr_mult else ("pips" if tp_pips else "none")
+        _add_signal("start", f"Algo started: {symbol} / {timeframe} / {direction} / SL={sl_mode} TP={tp_mode} / risk={risk_percent}%")
+        if additional_tfs:
+            _add_signal("info", f"Multi-TF enabled: {', '.join(additional_tfs)}")
 
         price_info = None
         check_count = 0
+        last_candle_time = None
+        bars_in_trade = 0
 
         while not algo_stop_event.is_set():
             try:
@@ -763,8 +860,30 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                     algo_stop_event.wait(10)
                     continue
 
+                # Multi-TF: merge higher-timeframe indicator values
+                for atf in additional_tfs:
+                    try:
+                        df_atf = connector.get_history(symbol, atf, 100)
+                        df_atf = add_all_indicators(df_atf)
+                        df_atf = df_atf.dropna()
+                        if len(df_atf) < 1:
+                            continue
+                        last_row_atf = df_atf.iloc[-1]
+                        for col in df_atf.columns:
+                            if col not in ("open", "high", "low", "close", "volume", "datetime", "index"):
+                                df[f"{col}_{atf}"] = last_row_atf[col]  # broadcast scalar
+                    except Exception as e:
+                        _add_signal("warn", f"Multi-TF {atf} failed: {e}")
+
                 row = df.iloc[-1]
                 prev_row = df.iloc[-2]
+
+                # Track candle changes for min_bars counting
+                current_candle_time = str(row.get("datetime", ""))
+                if current_candle_time != last_candle_time:
+                    last_candle_time = current_candle_time
+                    if algo_state["in_position"]:
+                        bars_in_trade += 1
 
                 # Update indicator snapshot
                 algo_state["indicators"] = sanitize_for_json(
@@ -800,33 +919,80 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                     })
                 algo_state["exit_conditions"] = exit_results
 
-                # Log periodic check so user sees the algo is alive
+                # Log periodic check with per-condition indicator values
                 entry_pass = sum(1 for r in entry_results if r["passed"])
                 entry_total = len(entry_results)
                 bid = price_info["bid"]
                 if check_count % 6 == 1:  # every ~30s
                     pos_status = "IN_POSITION" if algo_state["in_position"] else "WATCHING"
-                    _add_signal("check", f"{pos_status} | bid={bid:.5f} | entry {entry_pass}/{entry_total}")
+                    # Build per-condition detail string
+                    cond_details = []
+                    active_results = exit_results if algo_state["in_position"] else entry_results
+                    for r in active_results:
+                        ind = r["indicator"]
+                        param = r["parameter"]
+                        col = _resolve_column(ind, param)
+                        val = row.get(col, "?") if col in row.index else "?"
+                        mark = "+" if r["passed"] else "-"
+                        if isinstance(val, float):
+                            val = f"{val:.2f}"
+                        cond_details.append(f"{ind}.{param}={val}{mark}")
+                    detail_str = " | ".join(cond_details) if cond_details else ""
+                    if algo_state["in_position"]:
+                        exit_pass = sum(1 for r in exit_results if r["passed"])
+                        exit_total = len(exit_results)
+                        bars_str = f" | bars={bars_in_trade}/{min_bars}" if min_bars > 0 else ""
+                        _add_signal("check", f"{pos_status} | bid={bid:.5f} | {detail_str} | exit {exit_pass}/{exit_total}{bars_str}")
+                    else:
+                        _add_signal("check", f"{pos_status} | bid={bid:.5f} | {detail_str} | entry {entry_pass}/{entry_total}")
 
                 if not algo_state["in_position"]:
                     # Check if ALL entry conditions are met
                     all_entry = all(r["passed"] for r in entry_results)
                     if all_entry and len(entry_conditions) > 0:
                         try:
-                            # Calculate SL/TP based on direction
+                            # Calculate ATR-based or pip-based SL/TP
+                            import pandas as pd
+                            atr_val = float(row["ATR_14"]) if "ATR_14" in row.index and not pd.isna(row.get("ATR_14")) else 0
+
                             if direction == "buy":
                                 entry_price = price_info["ask"]
-                                sl_price = entry_price - sl_pips * pip_value if sl_pips else None
-                                tp_price = entry_price + tp_pips * pip_value if tp_pips else None
+                                if sl_atr_mult and atr_val > 0:
+                                    sl_price = entry_price - atr_val * sl_atr_mult
+                                else:
+                                    sl_price = entry_price - sl_pips * pip_value if sl_pips else None
+                                if tp_atr_mult and atr_val > 0:
+                                    tp_price = entry_price + atr_val * tp_atr_mult
+                                else:
+                                    tp_price = entry_price + tp_pips * pip_value if tp_pips else None
                             else:
                                 entry_price = price_info["bid"]
-                                sl_price = entry_price + sl_pips * pip_value if sl_pips else None
-                                tp_price = entry_price - tp_pips * pip_value if tp_pips else None
+                                if sl_atr_mult and atr_val > 0:
+                                    sl_price = entry_price + atr_val * sl_atr_mult
+                                else:
+                                    sl_price = entry_price + sl_pips * pip_value if sl_pips else None
+                                if tp_atr_mult and atr_val > 0:
+                                    tp_price = entry_price - atr_val * tp_atr_mult
+                                else:
+                                    tp_price = entry_price - tp_pips * pip_value if tp_pips else None
+
+                            # Dynamic position sizing
+                            actual_volume = volume
+                            if sl_price is not None:
+                                try:
+                                    acct = connector.get_account_info()
+                                    sl_dist = abs(entry_price - sl_price)
+                                    actual_volume = _calculate_lot_size(
+                                        acct["equity"], risk_percent, sl_dist,
+                                        tick_value, tick_size, vol_min, vol_max, vol_step
+                                    )
+                                except Exception:
+                                    actual_volume = volume
 
                             result = connector.place_trade(
                                 symbol=symbol,
                                 trade_type=direction,
-                                volume=volume,
+                                volume=actual_volume,
                                 stop_loss=sl_price,
                                 take_profit=tp_price,
                             )
@@ -834,29 +1000,50 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                                 algo_state["in_position"] = True
                                 algo_state["position_ticket"] = result.get("order_id")
                                 algo_state["trades_placed"] += 1
+                                bars_in_trade = 0
+                                # Build TradeState
+                                algo_state["trade_state"] = sanitize_for_json({
+                                    "ticket": result.get("order_id"),
+                                    "entry_price": entry_price,
+                                    "sl_price": sl_price,
+                                    "tp_price": tp_price,
+                                    "direction": direction,
+                                    "volume": actual_volume,
+                                    "entry_time": datetime.now(timezone.utc).isoformat(),
+                                    "bars_since_entry": 0,
+                                    "atr_at_entry": atr_val if atr_val > 0 else None,
+                                })
                                 sl_str = f" SL={sl_price:.5f}" if sl_price else ""
                                 tp_str = f" TP={tp_price:.5f}" if tp_price else ""
-                                _add_signal(direction, f"Entry {direction.upper()} at {entry_price:.5f}{sl_str}{tp_str} | ticket={result.get('order_id')}")
+                                atr_str = f" ATR={atr_val:.5f}" if atr_val > 0 else ""
+                                _add_signal(direction, f"Entry {direction.upper()} at {entry_price:.5f}{sl_str}{tp_str}{atr_str} | vol={actual_volume} | ticket={result.get('order_id')}")
                             else:
                                 _add_signal("error", f"Trade failed (rc={result.get('retcode')}): {result.get('message', 'unknown')} | SL={sl_price} TP={tp_price}")
                         except Exception as e:
                             _add_signal("error", f"Trade error: {str(e)}")
                 else:
-                    # Check exit conditions
-                    all_exit = exit_results and all(r["passed"] for r in exit_results)
-                    if all_exit:
-                        try:
-                            ticket = algo_state["position_ticket"]
-                            if ticket:
-                                close_result = connector.close_position(ticket)
-                                if close_result.get("success"):
-                                    _add_signal("close", f"Exit signal — closed ticket {ticket}")
-                                    algo_state["in_position"] = False
-                                    algo_state["position_ticket"] = None
-                                else:
-                                    _add_signal("error", f"Close failed: {close_result.get('message', 'unknown')}")
-                        except Exception as e:
-                            _add_signal("error", f"Close error: {str(e)}")
+                    # Update bars_since_entry in trade_state
+                    if algo_state.get("trade_state"):
+                        algo_state["trade_state"]["bars_since_entry"] = bars_in_trade
+
+                    # Check exit conditions — gated behind min_bars
+                    if bars_in_trade >= min_bars:
+                        all_exit = exit_results and all(r["passed"] for r in exit_results)
+                        if all_exit:
+                            try:
+                                ticket = algo_state["position_ticket"]
+                                if ticket:
+                                    close_result = connector.close_position(ticket)
+                                    if close_result.get("success"):
+                                        _add_signal("close", f"Exit signal — closed ticket {ticket} | bars_held={bars_in_trade}")
+                                        algo_state["in_position"] = False
+                                        algo_state["position_ticket"] = None
+                                        algo_state["trade_state"] = None
+                                        bars_in_trade = 0
+                                    else:
+                                        _add_signal("error", f"Close failed: {close_result.get('message', 'unknown')}")
+                            except Exception as e:
+                                _add_signal("error", f"Close error: {str(e)}")
 
                     # Check if position was closed externally (SL/TP hit)
                     if algo_state["in_position"]:
@@ -864,9 +1051,11 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                         ticket = algo_state["position_ticket"]
                         still_open = any(p["ticket"] == ticket for p in positions)
                         if not still_open:
-                            _add_signal("closed", f"Position {ticket} closed (SL/TP or manual)")
+                            _add_signal("closed", f"Position {ticket} closed (SL/TP or manual) | bars_held={bars_in_trade}")
                             algo_state["in_position"] = False
                             algo_state["position_ticket"] = None
+                            algo_state["trade_state"] = None
+                            bars_in_trade = 0
 
             except Exception as e:
                 _add_signal("error", str(e))
@@ -911,6 +1100,7 @@ def algo_start(req: AlgoStartRequest):
     algo_state["trades_placed"] = 0
     algo_state["in_position"] = False
     algo_state["position_ticket"] = None
+    algo_state["trade_state"] = None
 
     algo_thread = threading.Thread(
         target=_algo_loop,
@@ -948,6 +1138,7 @@ def algo_status():
         "entry_conditions": algo_state["entry_conditions"],
         "exit_conditions": algo_state["exit_conditions"],
         "last_check": algo_state["last_check"],
+        "trade_state": algo_state.get("trade_state"),
     }
     return JSONResponse(content=sanitize_for_json(data))
 

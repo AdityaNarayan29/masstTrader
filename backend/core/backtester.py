@@ -143,6 +143,12 @@ def run_backtest(
     exit_conditions = strategy_rule.get("exit_conditions", [])
     sl_pips = strategy_rule.get("stop_loss_pips")
     tp_pips = strategy_rule.get("take_profit_pips")
+    sl_atr_mult = strategy_rule.get("stop_loss_atr_multiplier")
+    tp_atr_mult = strategy_rule.get("take_profit_atr_multiplier")
+    min_bars = strategy_rule.get("min_bars_in_trade") or 0
+
+    effective_sl_pips = None  # computed at entry from ATR if needed
+    effective_tp_pips = None
 
     for i in range(1, len(df)):
         row = df.iloc[i]
@@ -159,6 +165,17 @@ def run_backtest(
                 entry_index = i
                 in_position = True
 
+                # Compute effective SL/TP from ATR at entry time
+                atr_val = float(row["ATR_14"]) if "ATR_14" in row.index and not pd.isna(row.get("ATR_14")) else 0
+                if sl_atr_mult and atr_val > 0:
+                    effective_sl_pips = (atr_val * sl_atr_mult) * 10000
+                else:
+                    effective_sl_pips = sl_pips
+                if tp_atr_mult and atr_val > 0:
+                    effective_tp_pips = (atr_val * tp_atr_mult) * 10000
+                else:
+                    effective_tp_pips = tp_pips
+
         else:
             # Check exit conditions
             current_price = row["close"]
@@ -166,16 +183,16 @@ def run_backtest(
 
             exit_reason = None
 
-            # Stop loss check
-            if sl_pips and pnl_pips <= -sl_pips:
+            # SL/TP checks always fire (capital protection, not gated by min_bars)
+            if effective_sl_pips and pnl_pips <= -effective_sl_pips:
                 exit_reason = "stop_loss"
 
-            # Take profit check
-            if tp_pips and pnl_pips >= tp_pips:
+            if effective_tp_pips and pnl_pips >= effective_tp_pips:
                 exit_reason = "take_profit"
 
-            # Strategy exit conditions
-            if exit_conditions:
+            # Strategy exit conditions — gated behind min_bars
+            bars_held = i - entry_index
+            if exit_conditions and bars_held >= min_bars:
                 all_exit_met = all(
                     evaluate_condition(row, prev_row, cond)
                     for cond in exit_conditions
@@ -186,8 +203,9 @@ def run_backtest(
             if exit_reason:
                 # Calculate profit
                 risk_amount = balance * (risk_per_trade / 100)
-                if sl_pips and sl_pips > 0:
-                    profit = risk_amount * (pnl_pips / sl_pips)
+                sl_for_calc = effective_sl_pips if effective_sl_pips and effective_sl_pips > 0 else None
+                if sl_for_calc:
+                    profit = risk_amount * (pnl_pips / sl_for_calc)
                 else:
                     profit = risk_amount * (pnl_pips / 100)
 

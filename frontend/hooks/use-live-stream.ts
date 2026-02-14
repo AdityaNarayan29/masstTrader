@@ -73,6 +73,12 @@ export interface AlgoStatusData {
   entry_conditions: AlgoCondition[];
   exit_conditions: AlgoCondition[];
   last_check: string | null;
+  trade_state: {
+    ticket: number; entry_price: number;
+    sl_price: number | null; tp_price: number | null;
+    direction: string; volume: number; entry_time: string;
+    bars_since_entry: number; atr_at_entry: number | null;
+  } | null;
 }
 
 export type StreamStatus = "disconnected" | "connecting" | "connected" | "error";

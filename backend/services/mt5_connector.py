@@ -260,6 +260,9 @@ class MT5Connector:
             "volume_min": info.volume_min,
             "volume_max": info.volume_max,
             "volume_step": info.volume_step,
+            "trade_contract_size": info.trade_contract_size,
+            "trade_tick_value": info.trade_tick_value,
+            "trade_tick_size": info.trade_tick_size,
         }
 
     def get_symbol_price(self, symbol: str) -> dict:

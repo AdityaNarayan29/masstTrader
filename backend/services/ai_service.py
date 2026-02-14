@@ -13,7 +13,7 @@ _VALID_INDICATORS = {
 }
 # Also allow EMA_{n}, SMA_{n}, Bollinger
 _INDICATOR_PATTERN = re.compile(
-    r"^(RSI|MACD|ATR|ADX|Stochastic|Volume|EMA_\d+|SMA_\d+|Bollinger)$"
+    r"^(RSI|MACD|ATR|ADX|Stochastic|Volume|EMA_\d+|SMA_\d+|Bollinger|close|open|high|low)(_\d+[mhdw])?$"
 )
 _VALID_OPERATORS = {">", "<", ">=", "<=", "==", "crosses_above", "crosses_below"}
 
@@ -85,18 +85,23 @@ Output ONLY valid JSON with this schema:
     {
       "name": "rule name",
       "timeframe": "1h",
+      "direction": "buy",
       "entry_conditions": [
         {
-          "indicator": "RSI",
+          "indicator": "close",
           "parameter": "value",
-          "operator": ">|<|crosses_above|crosses_below|==",
-          "value": 30,
-          "description": "RSI is above 30"
+          "operator": ">",
+          "value": "EMA_50",
+          "description": "Price is above EMA 50"
         }
       ],
       "exit_conditions": [...],
-      "stop_loss_pips": 50,
-      "take_profit_pips": 100,
+      "stop_loss_pips": null,
+      "take_profit_pips": null,
+      "stop_loss_atr_multiplier": 1.5,
+      "take_profit_atr_multiplier": 3.75,
+      "min_bars_in_trade": 5,
+      "additional_timeframes": ["4h"],
       "risk_percent": 1.0,
       "description": "human readable rule description"
     }
@@ -104,11 +109,34 @@ Output ONLY valid JSON with this schema:
   "ai_explanation": "A clear explanation of what this strategy does and when it triggers"
 }
 
-Available indicators: RSI, MACD (parameters: line, signal, histogram), EMA_{period}, SMA_{period}, Bollinger (parameters: upper, middle, lower, width), ATR, Stochastic (parameters: K, D), ADX (parameters: value, DI_plus, DI_minus), Volume (parameters: OBV, ratio).
+Available indicators: RSI (parameter: value), MACD (parameters: line, signal, histogram), EMA_{period}, SMA_{period}, Bollinger (parameters: upper, middle, lower, width), ATR (parameter: value), Stochastic (parameters: K, D), ADX (parameters: value, DI_plus, DI_minus), Volume (parameters: OBV, ratio).
+Price columns: close, open, high, low (parameter: value).
 
-If the user mentions a timeframe, use it. Default to 1h if not specified.
-If the user doesn't mention stop loss / take profit, leave them as null.
-Be precise with operator selection — "crosses above" is different from "is above"."""
+CRITICAL RULES FOR CONDITIONS:
+- To compare price vs a moving average, use indicator="close" and value="EMA_50".
+  Example: {"indicator": "close", "parameter": "value", "operator": ">", "value": "EMA_50", "description": "Price above EMA 50"}
+- NEVER write conditions like EMA_50 > 0 or SMA_20 > 0 — these are MEANINGLESS (always true).
+- For crossovers between two indicators: {"indicator": "SMA_20", "parameter": "value", "operator": "crosses_above", "value": "EMA_50"}
+- Match exact numeric values from the user's description (e.g., if user says RSI exit at 45, use 45 not 40).
+
+ATR-BASED STOP LOSS / TAKE PROFIT:
+- When user describes ATR-based SL/TP, use "stop_loss_atr_multiplier" and "take_profit_atr_multiplier" fields.
+  Example: "stop_loss_atr_multiplier": 1.5 means SL placed 1.5x ATR from entry.
+- NEVER put ATR in exit_conditions (e.g. "ATR < 0" is always false since ATR is always positive).
+- If user says "2.5:1 reward-to-risk" with ATR×1.5 SL, then TP multiplier = 1.5 × 2.5 = 3.75.
+- Set stop_loss_pips/take_profit_pips to null when using ATR multipliers.
+
+MULTI-TIMEFRAME:
+- If the strategy references indicators from a different timeframe, list them in "additional_timeframes": ["4h"].
+- Conditions using higher-TF indicators use a suffix: "EMA_50_4h" for EMA 50 on 4H candles.
+- Main timeframe indicators have no suffix.
+
+OTHER FIELDS:
+- "direction": "buy" or "sell" — which side this rule trades.
+- "min_bars_in_trade": minimum candles before exit conditions activate (prevents whipsaw exits). Default null.
+- If the user mentions a timeframe, use it. Default to "1h" if not specified.
+- If the user doesn't mention SL/TP, leave all SL/TP fields as null.
+- Be precise with operator selection — "crosses above" is different from "is above"."""
 
 
 def _validate_strategy(data: dict) -> dict:
