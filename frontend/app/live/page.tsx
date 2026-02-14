@@ -118,7 +118,10 @@ export default function LivePage() {
     setAlgoLoading(true);
     try {
       const stratId = algoStrategyId !== "__current__" ? algoStrategyId : undefined;
-      await api.algo.start(symbol, timeframe, algoVolume, stratId);
+      // Use the strategy's symbol if a saved strategy is selected
+      const selectedStrat = strategies.find((s) => s.id === algoStrategyId);
+      const algoSymbol = selectedStrat?.symbol || symbol;
+      await api.algo.start(algoSymbol, timeframe, algoVolume, stratId);
       const status = await api.algo.status();
       setPolledAlgo(status);
     } catch (e: unknown) {
@@ -487,7 +490,11 @@ export default function LivePage() {
               {strategies.length > 0 && (
                 <div className="space-y-2">
                   <Label>Strategy</Label>
-                  <Select value={algoStrategyId} onValueChange={setAlgoStrategyId}>
+                  <Select value={algoStrategyId} onValueChange={(id) => {
+                    setAlgoStrategyId(id);
+                    const strat = strategies.find((s) => s.id === id);
+                    if (strat?.symbol) setSymbol(strat.symbol);
+                  }}>
                     <SelectTrigger className="w-full sm:w-56">
                       <SelectValue placeholder="Select strategy" />
                     </SelectTrigger>
