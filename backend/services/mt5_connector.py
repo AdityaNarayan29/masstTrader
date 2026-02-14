@@ -256,6 +256,7 @@ class MT5Connector:
             "digits": info.digits,
             "spread": info.spread,
             "trade_mode": info.trade_mode,
+            "filling_mode": info.filling_mode,
             "volume_min": info.volume_min,
             "volume_max": info.volume_max,
             "volume_step": info.volume_step,
@@ -292,6 +293,19 @@ class MT5Connector:
     def select_symbol(self, symbol: str) -> bool:
         """Enable a symbol in MarketWatch (required before trading)."""
         return mt5.symbol_select(symbol, True)
+
+    def _get_filling_mode(self, symbol: str) -> int:
+        """Auto-detect the correct filling mode for a symbol."""
+        info = mt5.symbol_info(symbol)
+        if info is None:
+            return mt5.ORDER_FILLING_IOC  # fallback
+        filling = info.filling_mode
+        # Check supported modes in order of preference
+        if filling & 1:  # SYMBOL_FILLING_FOK
+            return mt5.ORDER_FILLING_FOK
+        if filling & 2:  # SYMBOL_FILLING_IOC
+            return mt5.ORDER_FILLING_IOC
+        return mt5.ORDER_FILLING_RETURN
 
     def place_trade(
         self,
@@ -331,6 +345,8 @@ class MT5Connector:
             order_type = mt5.ORDER_TYPE_SELL
             price = tick.bid
 
+        filling_mode = self._get_filling_mode(symbol)
+
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
@@ -341,7 +357,7 @@ class MT5Connector:
             "magic": magic,
             "comment": comment,
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "type_filling": filling_mode,
         }
 
         if stop_loss is not None:
@@ -353,9 +369,18 @@ class MT5Connector:
         check = mt5.order_check(request)
         if check is None:
             raise RuntimeError(f"Order check failed: {mt5.last_error()}")
-        if check.retcode != mt5.TRADE_RETCODE_DONE:
-            # order_check returns 0 for valid, let's still try to send
-            pass
+        if check.retcode != 0:
+            # Return the check failure instead of blindly sending
+            return {
+                "retcode": check.retcode,
+                "order_id": 0,
+                "deal": 0,
+                "volume": 0,
+                "price": 0,
+                "comment": check.comment if hasattr(check, "comment") else "",
+                "success": False,
+                "message": f"Order check failed: {self._retcode_message(check.retcode)}",
+            }
 
         result = mt5.order_send(request)
         if result is None:
@@ -384,6 +409,8 @@ class MT5Connector:
         tick = mt5.symbol_info_tick(pos.symbol)
         price = tick.bid if close_type == mt5.ORDER_TYPE_SELL else tick.ask
 
+        filling_mode = self._get_filling_mode(pos.symbol)
+
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": pos.symbol,
@@ -395,7 +422,7 @@ class MT5Connector:
             "magic": 100000,
             "comment": "MasstTrader close",
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "type_filling": filling_mode,
         }
 
         result = mt5.order_send(request)
@@ -453,18 +480,28 @@ class MT5Connector:
     def _retcode_message(retcode: int) -> str:
         """Convert MT5 return code to human-readable message."""
         messages = {
+            10004: "Requote",
+            10006: "Request rejected",
+            10007: "Request canceled by trader",
+            10008: "Order placed",
             10009: "Order placed successfully",
+            10010: "Only partial fill",
             10013: "Invalid request",
             10014: "Invalid volume",
             10015: "Invalid price",
-            10016: "Invalid stops",
-            10017: "Trade disabled",
+            10016: "Invalid stops (too close to price or invalid level)",
+            10017: "Trade disabled for this symbol",
             10018: "Market closed",
             10019: "Not enough money",
             10020: "Price changed",
-            10021: "No quotes",
-            10026: "Auto trading disabled",
-            10027: "Modification denied",
-            10030: "Invalid fill type",
+            10021: "No quotes available",
+            10022: "Order expired",
+            10024: "Too many requests",
+            10026: "AutoTrading disabled by server",
+            10027: "AutoTrading disabled by client terminal",
+            10028: "Request locked for processing",
+            10030: "Invalid fill type for this symbol",
+            10031: "No connection to trade server",
+            10033: "Unsupported fill policy",
         }
         return messages.get(retcode, f"Unknown return code: {retcode}")

@@ -830,7 +830,7 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                                 tp_str = f" TP={tp_price:.5f}" if tp_price else ""
                                 _add_signal(direction, f"Entry {direction.upper()} at {entry_price:.5f}{sl_str}{tp_str} | ticket={result.get('order_id')}")
                             else:
-                                _add_signal("error", f"Trade failed: {result.get('message', 'unknown')}")
+                                _add_signal("error", f"Trade failed (rc={result.get('retcode')}): {result.get('message', 'unknown')} | SL={sl_price} TP={tp_price}")
                         except Exception as e:
                             _add_signal("error", f"Trade error: {str(e)}")
                 else:
