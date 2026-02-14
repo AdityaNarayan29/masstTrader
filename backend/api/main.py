@@ -4,17 +4,21 @@ FastAPI backend — REST API for MasstTrader.
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
+from pydantic import BaseModel, Field
 from typing import Optional
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import json
+import logging
 import math
 import sys
 import os
 import threading
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+
+logger = logging.getLogger("massttrader")
 
 
 def sanitize_for_json(obj):
@@ -39,21 +43,42 @@ from backend.database import (
     init_db, save_strategy, list_strategies, get_strategy,
     update_strategy, delete_strategy, save_backtest, list_backtests, get_backtest,
 )
+from config.settings import settings
 
 app = FastAPI(title="MasstTrader API", version="1.0.0")
 
 # Initialize SQLite database
 init_db()
 
+# ── CORS — restrict to known origins ──
+_cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ── Global state ──
+
+# ── API-key auth (single middleware for all routes) ──
+_API_KEY = settings.API_KEY
+
+
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    """Reject requests without a valid API key. Skips /api/health and when API_KEY is unset."""
+    async def dispatch(self, request: Request, call_next):
+        if _API_KEY and request.url.path != "/api/health":
+            key = request.headers.get("x-api-key") or request.query_params.get("api_key")
+            if key != _API_KEY:
+                return JSONResponse({"detail": "Invalid or missing API key"}, status_code=401)
+        return await call_next(request)
+
+
+app.add_middleware(APIKeyMiddleware)
+
+# ── Global state (protected by _state_lock for thread-safety) ──
+_state_lock = threading.Lock()
 connector = None
 historical_data = None
 current_strategy = None
@@ -125,7 +150,7 @@ class TradeAnalyzeRequest(BaseModel):
 class PlaceTradeRequest(BaseModel):
     symbol: str
     trade_type: str
-    volume: float
+    volume: float = Field(gt=0, le=1.0, description="Lot size (max 1.0)")
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
 
@@ -133,7 +158,7 @@ class PlaceTradeRequest(BaseModel):
 class AlgoStartRequest(BaseModel):
     symbol: str = "EURUSDm"
     timeframe: str = "5m"
-    volume: float = 0.01
+    volume: float = Field(default=0.01, gt=0, le=1.0, description="Lot size (max 1.0)")
     strategy_id: Optional[str] = None
 
 
@@ -172,9 +197,10 @@ def mt5_connect(req: MT5LoginRequest):
     thread.join(timeout=20)
 
     if thread.is_alive():
-        raise HTTPException(status_code=408, detail="MT5 connection timed out after 20s — make sure MT5 terminal is running")
+        raise HTTPException(status_code=408, detail="MT5 connection timed out — make sure MT5 terminal is running")
     if error_box[0]:
-        raise HTTPException(status_code=400, detail=str(error_box[0]))
+        logger.error("MT5 connect failed: %s", error_box[0])
+        raise HTTPException(status_code=400, detail="MT5 connection failed")
 
     connector, result = result_box[0]
     return {"success": True, **result}
@@ -196,7 +222,8 @@ def mt5_account():
     try:
         return connector.get_account_info()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Account info failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to get account info")
 
 
 @app.get("/api/mt5/positions")
@@ -206,7 +233,8 @@ def mt5_positions():
     try:
         return connector.get_positions()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Positions failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to get positions")
 
 
 @app.get("/api/mt5/symbols")
@@ -216,7 +244,8 @@ def mt5_symbols(group: str = None):
     try:
         return connector.get_symbols(group=group)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Symbols failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to get symbols")
 
 
 @app.get("/api/mt5/price/{symbol}")
@@ -227,7 +256,8 @@ def mt5_price(symbol: str):
         connector.select_symbol(symbol)
         return connector.get_symbol_price(symbol)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Price failed for %s: %s", symbol, e)
+        raise HTTPException(status_code=500, detail="Failed to get price")
 
 
 @app.post("/api/mt5/trade")
@@ -243,7 +273,8 @@ def mt5_place_trade(req: PlaceTradeRequest):
             take_profit=req.take_profit,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Trade failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to place trade")
 
 
 @app.post("/api/mt5/close/{ticket}")
@@ -253,7 +284,8 @@ def mt5_close_position(ticket: int):
     try:
         return connector.close_position(ticket)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Close position failed for %s: %s", ticket, e)
+        raise HTTPException(status_code=500, detail="Failed to close position")
 
 
 # ──────────────────────────────────────
@@ -282,7 +314,8 @@ def fetch_data(req: FetchDataRequest):
         }
         return JSONResponse(content=sanitize_for_json(data))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Data fetch failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to fetch data")
 
 
 def _load_demo_data():
@@ -337,7 +370,8 @@ def get_trade_history(days: int = 30):
         trade_history = trades
         return trades
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Trade history failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to get trade history")
 
 
 # ──────────────────────────────────────
@@ -355,7 +389,8 @@ def parse_strategy_endpoint(req: StrategyRequest):
         current_strategy = result
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Strategy parse failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to parse strategy")
 
 
 @app.get("/api/strategy/current")
@@ -510,7 +545,8 @@ def run_backtest_endpoint(req: BacktestRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Backtest run failed: %s", e)
+        raise HTTPException(status_code=500, detail="Backtest failed")
 
 
 @app.post("/api/backtest/explain")
@@ -526,7 +562,8 @@ def explain_backtest_endpoint():
         )
         return {"explanation": explanation}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Backtest explain failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to explain backtest")
 
 
 # ──────────────────────────────────────
@@ -582,7 +619,8 @@ def analyze_trade_endpoint(req: TradeAnalyzeRequest):
         result = analyze_trade(strategy, trade, req.indicators_at_entry)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Trade analysis failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to analyze trade")
 
 
 # ──────────────────────────────────────
@@ -600,7 +638,8 @@ def get_lesson_endpoint(req: LessonRequest):
         )
         return {"lesson": lesson}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Lesson generation failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to generate lesson")
 
 
 # ──────────────────────────────────────

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
 interface TickerPrice {
   symbol: string;
@@ -28,7 +29,9 @@ export function useTicker(symbol: string) {
   useEffect(() => {
     if (!symbol) return;
 
-    const url = `${API_BASE}/api/sse/ticker?symbol=${encodeURIComponent(symbol)}`;
+    const params = new URLSearchParams({ symbol });
+    if (API_KEY) params.set("api_key", API_KEY);
+    const url = `${API_BASE}/api/sse/ticker?${params.toString()}`;
     const es = new EventSource(url);
     esRef.current = es;
 

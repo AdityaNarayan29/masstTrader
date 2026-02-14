@@ -4,7 +4,18 @@ trade analysis, and personalized education.
 Supports: Groq (free), Google Gemini (free), Anthropic Claude, OpenAI GPT-4.
 """
 import json
+import re
 from config.settings import settings
+
+# Allowed indicators for strategy parsing (whitelist)
+_VALID_INDICATORS = {
+    "RSI", "MACD", "ATR", "ADX", "Stochastic", "Volume",
+}
+# Also allow EMA_{n}, SMA_{n}, Bollinger
+_INDICATOR_PATTERN = re.compile(
+    r"^(RSI|MACD|ATR|ADX|Stochastic|Volume|EMA_\d+|SMA_\d+|Bollinger)$"
+)
+_VALID_OPERATORS = {">", "<", ">=", "<=", "==", "crosses_above", "crosses_below"}
 
 
 def _call_llm(system_prompt: str, user_prompt: str, json_mode: bool = False) -> str:
@@ -100,19 +111,41 @@ If the user doesn't mention stop loss / take profit, leave them as null.
 Be precise with operator selection — "crosses above" is different from "is above"."""
 
 
+def _validate_strategy(data: dict) -> dict:
+    """Validate and sanitize parsed strategy output from AI."""
+    if not isinstance(data.get("name"), str) or not data["name"].strip():
+        raise ValueError("Strategy must have a name")
+    if not isinstance(data.get("rules"), list) or len(data["rules"]) == 0:
+        raise ValueError("Strategy must have at least one rule")
+    for rule in data["rules"]:
+        for cond_type in ("entry_conditions", "exit_conditions"):
+            for cond in rule.get(cond_type, []):
+                indicator = cond.get("indicator", "")
+                if not _INDICATOR_PATTERN.match(indicator):
+                    raise ValueError(f"Unknown indicator: {indicator}")
+                operator = cond.get("operator", "")
+                if operator not in _VALID_OPERATORS:
+                    raise ValueError(f"Invalid operator: {operator}")
+    return data
+
+
 def parse_strategy(natural_language: str, symbol: str = "") -> dict:
     """Convert natural language strategy description to structured rules."""
-    prompt = f"Symbol: {symbol}\n\nStrategy description: {natural_language}"
+    # Truncate input to prevent prompt stuffing
+    description = natural_language[:2000]
+    prompt = f"Symbol: {symbol}\n\nStrategy description: {description}"
     result = _call_llm(STRATEGY_PARSER_SYSTEM, prompt, json_mode=True)
     try:
-        return json.loads(result)
+        parsed = json.loads(result)
     except json.JSONDecodeError:
         # Try to extract JSON from the response
         start = result.find("{")
         end = result.rfind("}") + 1
         if start != -1 and end > start:
-            return json.loads(result[start:end])
-        raise ValueError(f"AI did not return valid JSON: {result[:200]}")
+            parsed = json.loads(result[start:end])
+        else:
+            raise ValueError("AI did not return valid JSON")
+    return _validate_strategy(parsed)
 
 
 # ──────────────────────────────────────────────

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
 export interface PriceData {
   symbol: string;
@@ -109,7 +110,9 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
     setError("");
 
     const { symbol: sym, timeframe: tf } = paramsRef.current;
-    const url = `${API_BASE}/api/sse/live?symbol=${encodeURIComponent(sym)}&timeframe=${encodeURIComponent(tf)}`;
+    const params = new URLSearchParams({ symbol: sym, timeframe: tf });
+    if (API_KEY) params.set("api_key", API_KEY);
+    const url = `${API_BASE}/api/sse/live?${params.toString()}`;
     const es = new EventSource(url);
     esRef.current = es;
 

@@ -279,13 +279,9 @@ export default function ConnectionPage() {
               <Button
                 variant="outline"
                 disabled={loading}
-                onClick={() => {
-                  setLogin("260210496");
-                  setPassword("Password@123");
-                  setServer("Exness-MT5Trial15");
-                }}
+                onClick={handleLoadDemo}
               >
-                Fill Demo Credentials
+                Use Demo Data Instead
               </Button>
             </div>
           </CardContent>

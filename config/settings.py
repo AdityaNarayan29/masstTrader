@@ -18,6 +18,10 @@ class Settings:
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
     AI_PROVIDER: str = os.getenv("AI_PROVIDER", "groq")
 
+    # Security
+    API_KEY: str = os.getenv("API_KEY", "")
+    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+
     def validate(self):
         errors = []
         if not self.ANTHROPIC_API_KEY and not self.OPENAI_API_KEY and not self.GOOGLE_API_KEY:
