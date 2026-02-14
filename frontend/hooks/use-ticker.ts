@@ -13,6 +13,7 @@ interface TickerPrice {
 interface AlgoTicker {
   running: boolean;
   symbol: string | null;
+  strategy_name: string | null;
   trades_placed: number;
   in_position: boolean;
 }

@@ -1247,6 +1247,7 @@ async def _sse_ticker_generator(request: Request, symbol: str):
         yield _sse_event("algo_status", {
             "running": algo_state["running"],
             "symbol": algo_state["symbol"],
+            "strategy_name": algo_state["strategy_name"],
             "trades_placed": algo_state["trades_placed"],
             "in_position": algo_state["in_position"],
         })

@@ -62,7 +62,8 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = (resolvedTheme ?? "dark") === "dark";
   const [status, setStatus] = useState<{ mt5: boolean; data: boolean; strategy: boolean } | null>(null);
-  const ticker = useTicker("EURUSDm");
+  const [algoSymbol, setAlgoSymbol] = useState<string | null>(null);
+  const ticker = useTicker(algoSymbol || "EURUSDm");
 
   useEffect(() => {
     const poll = () =>
@@ -73,6 +74,15 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     const interval = setInterval(poll, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Switch ticker to algo symbol when algo is running
+  useEffect(() => {
+    if (ticker.algo?.running && ticker.algo.symbol) {
+      setAlgoSymbol(ticker.algo.symbol);
+    } else if (ticker.algo && !ticker.algo.running) {
+      setAlgoSymbol(null);
+    }
+  }, [ticker.algo?.running, ticker.algo?.symbol]);
 
   return (
     <TooltipProvider>
@@ -152,9 +162,22 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               </div>
             )}
             {ticker.algo?.running && (
-              <Badge variant="default" className="text-[10px] h-5 w-full justify-center animate-pulse">
-                ALGO RUNNING
-              </Badge>
+              <div className="space-y-1 pt-1">
+                <Badge variant="default" className="text-[10px] h-5 w-full justify-center animate-pulse">
+                  ALGO RUNNING
+                </Badge>
+                <div className="text-[10px] text-muted-foreground space-y-0.5">
+                  {ticker.algo.strategy_name && (
+                    <p className="truncate" title={ticker.algo.strategy_name}>{ticker.algo.strategy_name}</p>
+                  )}
+                  <div className="flex justify-between">
+                    <span>Trades: <span className="font-mono font-medium text-foreground">{ticker.algo.trades_placed}</span></span>
+                    <Badge variant={ticker.algo.in_position ? "default" : "secondary"} className="text-[9px] h-4">
+                      {ticker.algo.in_position ? "IN TRADE" : "WATCHING"}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         )}
