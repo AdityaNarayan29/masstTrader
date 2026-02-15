@@ -107,6 +107,10 @@ export default function AlgoPage() {
   const [streamStarted, setStreamStarted] = useState(false);
   const autoLoadedRef = useRef(false);
 
+  // Trade history
+  type PairedTrade = Awaited<ReturnType<typeof api.data.trades>>[number];
+  const [tradeHistory, setTradeHistory] = useState<PairedTrade[]>([]);
+
   const stream = useLiveStream(symbol || "EURUSDm", timeframe);
   const liveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const [polledPrice, setPolledPrice] = useState<{ bid: number; ask: number; symbol: string } | null>(null);
@@ -122,23 +126,59 @@ export default function AlgoPage() {
   // ── Derived chart data ──
 
   const tradeMarkers = useMemo<TradeMarkerData[]>(() => {
-    if (!algo?.signals || algo.signals.length === 0) return [];
     const markers: TradeMarkerData[] = [];
-    for (const sig of algo.signals) {
-      if (!["buy", "sell", "close", "closed"].includes(sig.action)) continue;
-      const priceMatch = sig.detail.match(/at\s+([\d.]+)/i);
-      const p = priceMatch ? parseFloat(priceMatch[1]) : 0;
-      if (p === 0) continue;
-      markers.push({
-        time: Math.floor(new Date(sig.time).getTime() / 1000),
-        type: sig.action === "buy" || sig.action === "sell" ? "entry" : "exit",
-        direction: sig.action as "buy" | "sell" | "close",
-        price: p,
-        label: sig.action.toUpperCase(),
-      });
+    const usedTimes = new Set<string>();
+
+    // 1) Markers from live algo signals (current session)
+    if (algo?.signals) {
+      for (const sig of algo.signals) {
+        if (!["buy", "sell", "close", "closed"].includes(sig.action)) continue;
+        const priceMatch = sig.detail.match(/at\s+([\d.]+)/i);
+        const p = priceMatch ? parseFloat(priceMatch[1]) : 0;
+        if (p === 0) continue;
+        const key = `${sig.time}-${sig.action}`;
+        usedTimes.add(key);
+        markers.push({
+          time: Math.floor(new Date(sig.time).getTime() / 1000),
+          type: sig.action === "buy" || sig.action === "sell" ? "entry" : "exit",
+          direction: sig.action as "buy" | "sell" | "close",
+          price: p,
+          label: sig.action.toUpperCase(),
+        });
+      }
     }
+
+    // 2) Markers from trade history (past trades from MT5)
+    for (const t of tradeHistory) {
+      if (!t.entry_time) continue;
+      const entryKey = `entry-${t.position_id}`;
+      if (!usedTimes.has(entryKey)) {
+        usedTimes.add(entryKey);
+        markers.push({
+          time: Math.floor(new Date(t.entry_time).getTime() / 1000),
+          type: "entry",
+          direction: t.direction as "buy" | "sell",
+          price: t.entry_price,
+          label: t.direction.toUpperCase(),
+        });
+      }
+      if (t.exit_price && t.exit_time) {
+        const exitKey = `exit-${t.position_id}`;
+        if (!usedTimes.has(exitKey)) {
+          usedTimes.add(exitKey);
+          markers.push({
+            time: Math.floor(new Date(t.exit_time).getTime() / 1000),
+            type: "exit",
+            direction: "close",
+            price: t.exit_price,
+            label: `${t.profit != null && t.profit >= 0 ? "+" : ""}${t.profit?.toFixed(2) ?? ""}`,
+          });
+        }
+      }
+    }
+
     return markers;
-  }, [algo?.signals]);
+  }, [algo?.signals, tradeHistory]);
 
   const positionOverlay = useMemo<PositionOverlay | null>(() => {
     if (!algo?.in_position || !algo.position_ticket) return null;
@@ -211,6 +251,18 @@ export default function AlgoPage() {
       setFullStrategy(s as unknown as FullStrategy);
     }).catch(() => setFullStrategy(null));
   }, [strategyId]);
+
+  // Fetch trade history when symbol is known
+  useEffect(() => {
+    if (!symbol) return;
+    api.data.trades(symbol, 30).then(setTradeHistory).catch(() => {});
+  }, [symbol]);
+
+  // Refresh trade history when a trade is closed (trades_placed changes)
+  useEffect(() => {
+    if (!symbol || !algo?.trades_placed) return;
+    api.data.trades(symbol, 30).then(setTradeHistory).catch(() => {});
+  }, [algo?.trades_placed, symbol]);
 
   // Poll algo status every 1s (HTTP baseline; SSE overlays when available)
   useEffect(() => {
@@ -1286,6 +1338,98 @@ export default function AlgoPage() {
                   </div>
                 );
               })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Trade History */}
+      {tradeHistory.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base">Trade History</CardTitle>
+                <CardDescription>
+                  {tradeHistory.length} trade{tradeHistory.length !== 1 ? "s" : ""} on {symbol} (last 30 days)
+                </CardDescription>
+              </div>
+              {(() => {
+                const closed = tradeHistory.filter(t => t.closed && t.net_pnl != null);
+                const totalPnl = closed.reduce((s, t) => s + (t.net_pnl ?? 0), 0);
+                const wins = closed.filter(t => (t.net_pnl ?? 0) > 0).length;
+                const winRate = closed.length > 0 ? ((wins / closed.length) * 100).toFixed(0) : "0";
+                return (
+                  <div className="flex items-center gap-3 text-sm">
+                    <div className="text-right">
+                      <p className="text-[10px] text-muted-foreground uppercase">Net P&L</p>
+                      <p className={`font-mono font-bold ${totalPnl >= 0 ? "text-green-500" : "text-red-500"}`}>
+                        {totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-muted-foreground uppercase">Win Rate</p>
+                      <p className="font-mono font-bold">{winRate}%</p>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-md border overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-[10px] w-16">Dir</TableHead>
+                    <TableHead className="text-[10px]">Entry</TableHead>
+                    <TableHead className="text-[10px]">Exit</TableHead>
+                    <TableHead className="text-[10px] text-right">Vol</TableHead>
+                    <TableHead className="text-[10px] text-right">Profit</TableHead>
+                    <TableHead className="text-[10px] text-right">Net</TableHead>
+                    <TableHead className="text-[10px]">Time</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tradeHistory.map((t) => {
+                    const dec = isBigPrice ? 2 : 5;
+                    return (
+                      <TableRow key={t.position_id}>
+                        <TableCell>
+                          <Badge variant={t.direction === "buy" ? "default" : "destructive"} className="text-[10px]">
+                            {t.direction.toUpperCase()}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs font-mono">{t.entry_price.toFixed(dec)}</TableCell>
+                        <TableCell className="text-xs font-mono">
+                          {t.exit_price != null ? t.exit_price.toFixed(dec) : (
+                            <Badge variant="outline" className="text-[9px]">OPEN</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs font-mono text-right">{t.volume}</TableCell>
+                        <TableCell className={`text-xs font-mono text-right ${
+                          t.profit == null ? "" : t.profit >= 0 ? "text-green-500" : "text-red-500"
+                        }`}>
+                          {t.profit != null ? `${t.profit >= 0 ? "+" : ""}$${t.profit.toFixed(2)}` : "---"}
+                        </TableCell>
+                        <TableCell className={`text-xs font-mono text-right ${
+                          t.net_pnl == null ? "" : t.net_pnl >= 0 ? "text-green-500" : "text-red-500"
+                        }`}>
+                          {t.net_pnl != null ? `${t.net_pnl >= 0 ? "+" : ""}$${t.net_pnl.toFixed(2)}` : "---"}
+                        </TableCell>
+                        <TableCell className="text-[10px] text-muted-foreground whitespace-nowrap">
+                          <div>{t.entry_time ? new Date(t.entry_time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</div>
+                          {t.exit_time && (
+                            <div className="text-[9px]">
+                              → {new Date(t.exit_time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
           </CardContent>
         </Card>

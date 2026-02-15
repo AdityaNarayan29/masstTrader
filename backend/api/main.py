@@ -395,6 +395,66 @@ def get_trade_history(days: int = 30):
         raise HTTPException(status_code=500, detail="Failed to get trade history")
 
 
+@app.get("/api/data/trades")
+def get_paired_trades(symbol: str = "", days: int = 30):
+    """Return paired trades (entry + exit) for a symbol. Each trade has entry/exit price, P&L, times."""
+    if not connector or not connector.is_connected:
+        raise HTTPException(status_code=400, detail="Not connected to MT5")
+    try:
+        if symbol:
+            deals = connector.get_trade_history_by_symbol(symbol, days=days)
+        else:
+            deals = connector.get_trade_history(days=days)
+
+        # Group deals by position_id, then pair entry ("in") and exit ("out")
+        from collections import defaultdict
+        by_pos: dict[int, dict] = defaultdict(lambda: {"entry": None, "exit": None})
+        for d in deals:
+            pos_id = d.get("position_id")
+            if not pos_id:
+                continue
+            if d["entry"] == "in":
+                by_pos[pos_id]["entry"] = d
+            elif d["entry"] == "out":
+                by_pos[pos_id]["exit"] = d
+
+        paired = []
+        for pos_id, pair in sorted(by_pos.items()):
+            entry_deal = pair["entry"]
+            exit_deal = pair["exit"]
+            if not entry_deal:
+                continue  # skip orphan exits
+
+            trade: dict = {
+                "position_id": pos_id,
+                "symbol": entry_deal["symbol"],
+                "direction": entry_deal["type"],  # buy or sell
+                "volume": entry_deal["volume"],
+                "entry_price": entry_deal["price"],
+                "entry_time": entry_deal["time"],
+                "exit_price": exit_deal["price"] if exit_deal else None,
+                "exit_time": exit_deal["time"] if exit_deal else None,
+                "profit": exit_deal["profit"] if exit_deal else None,
+                "commission": (entry_deal.get("commission", 0) or 0) + (exit_deal.get("commission", 0) or 0 if exit_deal else 0),
+                "swap": exit_deal.get("swap", 0) if exit_deal else 0,
+                "closed": exit_deal is not None,
+                "comment": exit_deal.get("comment", "") if exit_deal else entry_deal.get("comment", ""),
+            }
+            # Net P&L = profit + commission + swap
+            if trade["profit"] is not None:
+                trade["net_pnl"] = round(trade["profit"] + trade["commission"] + trade["swap"], 2)
+            else:
+                trade["net_pnl"] = None
+            paired.append(trade)
+
+        # Sort by entry time descending (newest first)
+        paired.sort(key=lambda t: t["entry_time"], reverse=True)
+        return paired
+    except Exception as e:
+        logger.error("Paired trades failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to get paired trades")
+
+
 # ──────────────────────────────────────
 # STRATEGY ENDPOINTS
 # ──────────────────────────────────────

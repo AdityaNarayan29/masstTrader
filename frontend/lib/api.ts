@@ -86,6 +86,26 @@ export const api = {
       ),
     history: (days: number) =>
       request<Record<string, unknown>[]>(`/api/data/history?days=${days}`),
+    trades: (symbol?: string, days?: number) =>
+      request<Array<{
+        position_id: number;
+        symbol: string;
+        direction: string;
+        volume: number;
+        entry_price: number;
+        entry_time: string;
+        exit_price: number | null;
+        exit_time: string | null;
+        profit: number | null;
+        commission: number;
+        swap: number;
+        net_pnl: number | null;
+        closed: boolean;
+        comment: string;
+      }>>(`/api/data/trades?${new URLSearchParams({
+        ...(symbol ? { symbol } : {}),
+        ...(days ? { days: String(days) } : {}),
+      }).toString()}`),
   },
 
   strategy: {
