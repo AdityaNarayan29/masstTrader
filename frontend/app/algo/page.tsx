@@ -105,6 +105,7 @@ export default function AlgoPage() {
   const [historicalCandles, setHistoricalCandles] = useState<HistoricalCandle[]>([]);
   const [loadingChart, setLoadingChart] = useState(false);
   const [streamStarted, setStreamStarted] = useState(false);
+  const autoLoadedRef = useRef(false);
 
   const stream = useLiveStream(symbol || "EURUSDm", timeframe);
   const liveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -218,6 +219,25 @@ export default function AlgoPage() {
     algoInterval.current = setInterval(poll, 1000);
     return () => { if (algoInterval.current) clearInterval(algoInterval.current); };
   }, []);
+
+  // Auto-load chart when page opens and algo is already running
+  useEffect(() => {
+    if (autoLoadedRef.current) return;
+    if (!polledAlgo?.running || !polledAlgo.symbol) return;
+    autoLoadedRef.current = true;
+    const algoSym = polledAlgo.symbol;
+    const algoTf = polledAlgo.timeframe || "1h";
+    // Sync local state to match running algo
+    setSymbol(algoSym);
+    const uiTf = toUiTimeframe(algoTf);
+    if (["1m", "5m", "15m", "30m", "1h", "4h"].includes(uiTf)) setTimeframe(uiTf);
+    setLoadingChart(true);
+    setStreamStarted(true);
+    api.data.fetch(algoSym, uiTf, 200)
+      .then((data) => setHistoricalCandles(data.candles as unknown as HistoricalCandle[]))
+      .catch(() => {})
+      .finally(() => setLoadingChart(false));
+  }, [polledAlgo]);
 
   // HTTP poll fallback for price/account/positions when SSE is down
   useEffect(() => {
