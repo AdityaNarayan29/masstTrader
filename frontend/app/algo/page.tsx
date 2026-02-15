@@ -265,20 +265,23 @@ export default function AlgoPage() {
     api.data.trades(symbol, 30).then(setTradeHistory).catch(() => {});
   }, [symbol]);
 
-  // Fetch algo trades (enriched DB records) when symbol is known
+  // Derive effective strategy ID for filtering trades
+  const effectiveStrategyId = algo?.strategy_id ?? (strategyId !== "__current__" ? strategyId : undefined);
+
+  // Fetch algo trades (enriched DB records) filtered by active strategy
   useEffect(() => {
     if (!symbol) return;
-    api.algo.trades(undefined, symbol, 100).then(setAlgoTrades).catch(() => {});
-    api.algo.tradeStats(undefined, symbol).then(setAlgoTradeStats).catch(() => {});
-  }, [symbol]);
+    api.algo.trades(effectiveStrategyId, symbol, 100).then(setAlgoTrades).catch(() => {});
+    api.algo.tradeStats(effectiveStrategyId, symbol).then(setAlgoTradeStats).catch(() => {});
+  }, [symbol, effectiveStrategyId]);
 
   // Refresh trade history + algo trades when a trade is closed
   useEffect(() => {
     if (!symbol || !algo?.trades_placed) return;
     api.data.trades(symbol, 30).then(setTradeHistory).catch(() => {});
-    api.algo.trades(undefined, symbol, 100).then(setAlgoTrades).catch(() => {});
-    api.algo.tradeStats(undefined, symbol).then(setAlgoTradeStats).catch(() => {});
-  }, [algo?.trades_placed, symbol]);
+    api.algo.trades(effectiveStrategyId, symbol, 100).then(setAlgoTrades).catch(() => {});
+    api.algo.tradeStats(effectiveStrategyId, symbol).then(setAlgoTradeStats).catch(() => {});
+  }, [algo?.trades_placed, symbol, effectiveStrategyId]);
 
   // Poll algo status every 1s (HTTP baseline; SSE overlays when available)
   useEffect(() => {

@@ -63,6 +63,7 @@ export interface AlgoStatusData {
   symbol: string | null;
   timeframe: string;
   strategy_name: string | null;
+  strategy_id: string | null;
   volume: number;
   in_position: boolean;
   position_ticket: number | null;

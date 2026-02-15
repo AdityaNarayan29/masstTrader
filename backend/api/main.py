@@ -1345,6 +1345,7 @@ def algo_start(req: AlgoStartRequest):
     algo_state["timeframe"] = effective_tf
     algo_state["volume"] = req.volume
     algo_state["strategy_name"] = current_strategy.get("name", "Unknown")
+    algo_state["strategy_id"] = current_strategy.get("id")
     algo_state["signals"] = []
     algo_state["trades_placed"] = 0
     algo_state["in_position"] = False
@@ -1378,6 +1379,7 @@ def algo_status():
         "symbol": algo_state["symbol"],
         "timeframe": algo_state["timeframe"],
         "strategy_name": algo_state["strategy_name"],
+        "strategy_id": algo_state.get("strategy_id"),
         "volume": algo_state["volume"],
         "in_position": algo_state["in_position"],
         "position_ticket": algo_state["position_ticket"],
