@@ -1090,10 +1090,18 @@ def algo_start(req: AlgoStartRequest):
     if not current_strategy:
         raise HTTPException(status_code=400, detail="No strategy loaded")
 
+    # Auto-derive timeframe from strategy rule (frontend timeframe is fallback)
+    rules = current_strategy.get("rules", [])
+    effective_tf = req.timeframe
+    if rules:
+        rule_tf = rules[0].get("timeframe")
+        if rule_tf:
+            effective_tf = rule_tf
+
     algo_stop_event.clear()
     algo_state["running"] = True
     algo_state["symbol"] = req.symbol
-    algo_state["timeframe"] = req.timeframe
+    algo_state["timeframe"] = effective_tf
     algo_state["volume"] = req.volume
     algo_state["strategy_name"] = current_strategy.get("name", "Unknown")
     algo_state["signals"] = []
@@ -1104,7 +1112,7 @@ def algo_start(req: AlgoStartRequest):
 
     algo_thread = threading.Thread(
         target=_algo_loop,
-        args=(current_strategy, req.symbol, req.timeframe, req.volume),
+        args=(current_strategy, req.symbol, effective_tf, req.volume),
         daemon=True,
     )
     algo_thread.start()

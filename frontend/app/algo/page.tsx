@@ -201,12 +201,13 @@ export default function AlgoPage() {
   const startStream = async (sym?: string) => {
     const s = sym || symbol;
     if (!s) return;
+    const tf = selectedStrategy?.timeframe ? toUiTimeframe(selectedStrategy.timeframe) : timeframe;
     setLoadingChart(true);
     setStreamStarted(true);
     try {
-      const data = await api.data.fetch(s, timeframe, 200);
+      const data = await api.data.fetch(s, tf, 200);
       setHistoricalCandles(data.candles as unknown as HistoricalCandle[]);
-      stream.changeSymbol(s, timeframe);
+      stream.changeSymbol(s, tf);
       stream.connect();
     } catch {
       stream.connect();
@@ -220,8 +221,9 @@ export default function AlgoPage() {
     try {
       const stratId = strategyId !== "__current__" ? strategyId : undefined;
       const algoSymbol = selectedStrategy?.symbol || symbol;
+      const algoTf = selectedStrategy?.timeframe ? toUiTimeframe(selectedStrategy.timeframe) : timeframe;
       if (!streamStarted) await startStream(algoSymbol);
-      await api.algo.start(algoSymbol, timeframe, volume, stratId);
+      await api.algo.start(algoSymbol, algoTf, volume, stratId);
       const status = await api.algo.status();
       setPolledAlgo(status);
     } catch (e: unknown) {
@@ -244,9 +246,14 @@ export default function AlgoPage() {
     }
   };
 
+  // Spread: use raw difference for BTC/XAU (large prices), points for forex
+  const isBigPrice = symbol.includes("BTC") || symbol.includes("XAU") || (price && price.bid > 100);
   const spread = price
-    ? ((price.ask - price.bid) * 100000).toFixed(1)
+    ? isBigPrice
+      ? (price.ask - price.bid).toFixed(2)
+      : ((price.ask - price.bid) * 100000).toFixed(1)
     : "---";
+  const spreadUnit = isBigPrice ? "USD" : "points";
 
   const indicators = algo?.running && algo.indicators && Object.keys(algo.indicators).length > 0
     ? algo.indicators
@@ -319,25 +326,47 @@ export default function AlgoPage() {
                 </Select>
               </div>
             )}
-            <div className="space-y-2">
-              <Label>Timeframe</Label>
-              <Select
-                value={timeframe}
-                onValueChange={setTimeframe}
-                disabled={algo?.running === true}
-              >
-                <SelectTrigger className="w-24">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {["1m", "5m", "15m", "30m", "1h", "4h"].map((tf) => (
-                    <SelectItem key={tf} value={tf}>
-                      {tf}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {selectedStrategy ? (
+              <div className="space-y-2">
+                <Label>Timeframe</Label>
+                <div className="flex items-center gap-2 h-9">
+                  <Badge variant="outline" className="text-sm font-mono px-3 py-1">
+                    {selectedStrategy.timeframe || timeframe}
+                  </Badge>
+                  {selectedStrategy.additional_timeframes && selectedStrategy.additional_timeframes.length > 0 && (
+                    <>
+                      <span className="text-xs text-muted-foreground">+</span>
+                      {selectedStrategy.additional_timeframes.map((tf) => (
+                        <Badge key={tf} variant="secondary" className="text-[10px] font-mono">
+                          {tf}
+                        </Badge>
+                      ))}
+                    </>
+                  )}
+                </div>
+                <p className="text-[10px] text-muted-foreground">From strategy</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Timeframe</Label>
+                <Select
+                  value={timeframe}
+                  onValueChange={setTimeframe}
+                  disabled={algo?.running === true}
+                >
+                  <SelectTrigger className="w-24">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["1m", "5m", "15m", "30m", "1h", "4h"].map((tf) => (
+                      <SelectItem key={tf} value={tf}>
+                        {tf}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {!algo?.running && (
               <div className="space-y-2">
                 <Label>
@@ -482,7 +511,7 @@ export default function AlgoPage() {
             <CardContent className="py-4 text-center">
               <p className="text-xs text-muted-foreground">BID</p>
               <p className="text-2xl font-mono font-bold text-green-500 mt-1">
-                {price.bid.toFixed(5)}
+                {price.bid.toFixed(isBigPrice ? 2 : 5)}
               </p>
             </CardContent>
           </Card>
@@ -490,14 +519,14 @@ export default function AlgoPage() {
             <CardContent className="py-4 text-center">
               <p className="text-xs text-muted-foreground">SPREAD</p>
               <p className="text-2xl font-mono font-bold mt-1">{spread}</p>
-              <p className="text-xs text-muted-foreground">points</p>
+              <p className="text-xs text-muted-foreground">{spreadUnit}</p>
             </CardContent>
           </Card>
           <Card className="border-red-500/20">
             <CardContent className="py-4 text-center">
               <p className="text-xs text-muted-foreground">ASK</p>
               <p className="text-2xl font-mono font-bold text-red-500 mt-1">
-                {price.ask.toFixed(5)}
+                {price.ask.toFixed(isBigPrice ? 2 : 5)}
               </p>
             </CardContent>
           </Card>
@@ -509,7 +538,7 @@ export default function AlgoPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              {symbol} — {timeframe}
+              {symbol} — {selectedStrategy?.timeframe ? toUiTimeframe(selectedStrategy.timeframe) : timeframe}
             </CardTitle>
           </CardHeader>
           <CardContent>

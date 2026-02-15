@@ -111,9 +111,13 @@ export default function LivePage() {
     setLiveStarted(false);
   };
 
+  const isBigPrice = symbol.includes("BTC") || symbol.includes("XAU") || (price && price.bid > 100);
   const spread = price
-    ? ((price.ask - price.bid) * 100000).toFixed(1)
+    ? isBigPrice
+      ? (price.ask - price.bid).toFixed(2)
+      : ((price.ask - price.bid) * 100000).toFixed(1)
     : "---";
+  const spreadUnit = isBigPrice ? "USD" : "points";
 
   const statusColor =
     stream.status === "connected"
@@ -219,7 +223,7 @@ export default function LivePage() {
             <CardContent className="py-4 text-center">
               <p className="text-xs text-muted-foreground">BID</p>
               <p className="text-2xl font-mono font-bold text-green-500 mt-1">
-                {price.bid.toFixed(5)}
+                {price.bid.toFixed(isBigPrice ? 2 : 5)}
               </p>
             </CardContent>
           </Card>
@@ -227,14 +231,14 @@ export default function LivePage() {
             <CardContent className="py-4 text-center">
               <p className="text-xs text-muted-foreground">SPREAD</p>
               <p className="text-2xl font-mono font-bold mt-1">{spread}</p>
-              <p className="text-xs text-muted-foreground">points</p>
+              <p className="text-xs text-muted-foreground">{spreadUnit}</p>
             </CardContent>
           </Card>
           <Card className="border-red-500/20">
             <CardContent className="py-4 text-center">
               <p className="text-xs text-muted-foreground">ASK</p>
               <p className="text-2xl font-mono font-bold text-red-500 mt-1">
-                {price.ask.toFixed(5)}
+                {price.ask.toFixed(isBigPrice ? 2 : 5)}
               </p>
             </CardContent>
           </Card>
