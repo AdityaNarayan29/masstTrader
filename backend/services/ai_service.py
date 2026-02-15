@@ -117,7 +117,12 @@ CRITICAL RULES FOR CONDITIONS:
   Example: {"indicator": "close", "parameter": "value", "operator": ">", "value": "EMA_50", "description": "Price above EMA 50"}
 - NEVER write conditions like EMA_50 > 0 or SMA_20 > 0 — these are MEANINGLESS (always true).
 - For crossovers between two indicators: {"indicator": "SMA_20", "parameter": "value", "operator": "crosses_above", "value": "EMA_50"}
-- Match exact numeric values from the user's description (e.g., if user says RSI exit at 45, use 45 not 40).
+
+EXACT NUMERIC VALUES — THIS IS MANDATORY:
+- You MUST use the EXACT numbers the user specifies. Do NOT round or adjust thresholds.
+- If user says "RSI exit at 45", you MUST use 45, NOT 40. If user says "RSI > 55", use 55 NOT 60.
+- Entry and exit thresholds are often intentionally asymmetric (e.g. entry RSI > 60, exit RSI < 45).
+- NEVER substitute standard textbook values (30/70, 20/80) when the user gives specific numbers.
 
 ATR-BASED STOP LOSS / TAKE PROFIT:
 - When user describes ATR-based SL/TP, use "stop_loss_atr_multiplier" and "take_profit_atr_multiplier" fields.
@@ -131,9 +136,14 @@ MULTI-TIMEFRAME:
 - Conditions using higher-TF indicators use a suffix: "EMA_50_4h" for EMA 50 on 4H candles.
 - Main timeframe indicators have no suffix.
 
+MIN BARS IN TRADE:
+- "min_bars_in_trade" gates exit conditions — they won't fire until the trade has been open for N candles.
+- If user mentions "hold for at least 5 bars", "minimum 5 candles", or "wait 5 bars before exit" → set min_bars_in_trade: 5.
+- This prevents whipsaw exits where RSI or other oscillators flip back right after entry.
+- SL/TP always fire regardless of min_bars (capital protection).
+
 OTHER FIELDS:
 - "direction": "buy" or "sell" — which side this rule trades.
-- "min_bars_in_trade": minimum candles before exit conditions activate (prevents whipsaw exits). Default null.
 - If the user mentions a timeframe, use it. Default to "1h" if not specified.
 - If the user doesn't mention SL/TP, leave all SL/TP fields as null.
 - Be precise with operator selection — "crosses above" is different from "is above"."""

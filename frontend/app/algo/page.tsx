@@ -340,7 +340,9 @@ export default function AlgoPage() {
             </div>
             {!algo?.running && (
               <div className="space-y-2">
-                <Label>Volume</Label>
+                <Label>
+                  {selectedStrategy?.stop_loss_atr_multiplier ? "Fallback Vol" : "Volume"}
+                </Label>
                 <Input
                   type="number"
                   value={volume}
@@ -349,6 +351,11 @@ export default function AlgoPage() {
                   step="0.01"
                   min="0.01"
                 />
+                {selectedStrategy?.stop_loss_atr_multiplier && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Dynamic sizing active (risk-based)
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -444,8 +451,12 @@ export default function AlgoPage() {
                 <span className="font-mono">{algo.symbol}</span>
               </div>
               <div>
-                <span className="text-muted-foreground">Vol:</span>{" "}
-                <span className="font-mono">{algo.volume}</span>
+                <span className="text-muted-foreground">Sizing:</span>{" "}
+                {algo.trade_state ? (
+                  <span className="font-mono">{algo.trade_state.volume} lots (dynamic)</span>
+                ) : (
+                  <span className="font-mono">{algo.volume} lots</span>
+                )}
               </div>
               <div>
                 <span className="text-muted-foreground">Trades:</span>{" "}
