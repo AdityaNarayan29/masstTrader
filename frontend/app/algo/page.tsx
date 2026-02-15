@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { api } from "@/lib/api";
 import { useLiveStream } from "@/hooks/use-live-stream";
 import { LiveChart, type TradeMarkerData, type PositionOverlay } from "@/components/live-chart";
@@ -107,9 +107,16 @@ export default function AlgoPage() {
   const [streamStarted, setStreamStarted] = useState(false);
   const autoLoadedRef = useRef(false);
 
-  // Trade history
+  // Trade history (raw MT5 deals — used for chart markers)
   type PairedTrade = Awaited<ReturnType<typeof api.data.trades>>[number];
   const [tradeHistory, setTradeHistory] = useState<PairedTrade[]>([]);
+
+  // Algo trades (enriched DB records with strategy context)
+  type AlgoTrade = Awaited<ReturnType<typeof api.algo.trades>>[number];
+  type AlgoTradeStats = Awaited<ReturnType<typeof api.algo.tradeStats>>;
+  const [algoTrades, setAlgoTrades] = useState<AlgoTrade[]>([]);
+  const [algoTradeStats, setAlgoTradeStats] = useState<AlgoTradeStats | null>(null);
+  const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
 
   const stream = useLiveStream(symbol || "EURUSDm", timeframe);
   const liveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -252,16 +259,25 @@ export default function AlgoPage() {
     }).catch(() => setFullStrategy(null));
   }, [strategyId]);
 
-  // Fetch trade history when symbol is known
+  // Fetch trade history (raw MT5 deals for chart markers)
   useEffect(() => {
     if (!symbol) return;
     api.data.trades(symbol, 30).then(setTradeHistory).catch(() => {});
   }, [symbol]);
 
-  // Refresh trade history when a trade is closed (trades_placed changes)
+  // Fetch algo trades (enriched DB records) when symbol is known
+  useEffect(() => {
+    if (!symbol) return;
+    api.algo.trades(undefined, symbol, 100).then(setAlgoTrades).catch(() => {});
+    api.algo.tradeStats(undefined, symbol).then(setAlgoTradeStats).catch(() => {});
+  }, [symbol]);
+
+  // Refresh trade history + algo trades when a trade is closed
   useEffect(() => {
     if (!symbol || !algo?.trades_placed) return;
     api.data.trades(symbol, 30).then(setTradeHistory).catch(() => {});
+    api.algo.trades(undefined, symbol, 100).then(setAlgoTrades).catch(() => {});
+    api.algo.tradeStats(undefined, symbol).then(setAlgoTradeStats).catch(() => {});
   }, [algo?.trades_placed, symbol]);
 
   // Poll algo status every 1s (HTTP baseline; SSE overlays when available)
@@ -1343,13 +1359,208 @@ export default function AlgoPage() {
         </Card>
       )}
 
-      {/* Trade History */}
-      {tradeHistory.length > 0 && (
+      {/* Algo Trade History (enriched with strategy context) */}
+      {algoTrades.length > 0 ? (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-base">Trade History</CardTitle>
+                <CardTitle className="text-base">Algo Trade History</CardTitle>
+                <CardDescription>
+                  {algoTrades.length} algo trade{algoTrades.length !== 1 ? "s" : ""} on {symbol}
+                </CardDescription>
+              </div>
+              {algoTradeStats && algoTradeStats.total_trades > 0 && (
+                <div className="flex items-center gap-3 text-sm">
+                  <div className="text-right">
+                    <p className="text-[10px] text-muted-foreground uppercase">Net P&L</p>
+                    <p className={`font-mono font-bold ${algoTradeStats.total_pnl >= 0 ? "text-green-500" : "text-red-500"}`}>
+                      {algoTradeStats.total_pnl >= 0 ? "+" : ""}${algoTradeStats.total_pnl.toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] text-muted-foreground uppercase">Win Rate</p>
+                    <p className="font-mono font-bold">{algoTradeStats.win_rate}%</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] text-muted-foreground uppercase">Avg Bars</p>
+                    <p className="font-mono font-bold">{algoTradeStats.avg_bars_held}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {/* Stats summary */}
+            {algoTradeStats && algoTradeStats.total_trades > 0 && (
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-4">
+                {[
+                  { label: "Trades", value: String(algoTradeStats.total_trades) },
+                  { label: "Wins", value: String(algoTradeStats.winning_trades), color: "text-green-500" },
+                  { label: "Losses", value: String(algoTradeStats.losing_trades), color: "text-red-500" },
+                  { label: "Avg P&L", value: `$${algoTradeStats.avg_pnl.toFixed(2)}`, color: algoTradeStats.avg_pnl >= 0 ? "text-green-500" : "text-red-500" },
+                  { label: "Best", value: `$${algoTradeStats.best_trade.toFixed(2)}`, color: "text-green-500" },
+                  { label: "Worst", value: `$${algoTradeStats.worst_trade.toFixed(2)}`, color: "text-red-500" },
+                ].map((s) => (
+                  <div key={s.label} className="rounded-lg border p-2 text-center">
+                    <p className="text-[10px] text-muted-foreground uppercase">{s.label}</p>
+                    <p className={`text-sm font-semibold font-mono ${s.color || ""}`}>{s.value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="rounded-md border overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-[10px] w-16">Dir</TableHead>
+                    <TableHead className="text-[10px]">Strategy</TableHead>
+                    <TableHead className="text-[10px]">Entry</TableHead>
+                    <TableHead className="text-[10px]">Exit</TableHead>
+                    <TableHead className="text-[10px]">Reason</TableHead>
+                    <TableHead className="text-[10px] text-right">Bars</TableHead>
+                    <TableHead className="text-[10px] text-right">Net</TableHead>
+                    <TableHead className="text-[10px]">Time</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {algoTrades.map((t) => {
+                    const dec = isBigPrice ? 2 : 5;
+                    const exitReasonColors: Record<string, string> = {
+                      strategy_exit: "bg-blue-500/10 text-blue-500 border-blue-500/30",
+                      stop_loss: "bg-red-500/10 text-red-500 border-red-500/30",
+                      take_profit: "bg-green-500/10 text-green-500 border-green-500/30",
+                      external: "bg-yellow-500/10 text-yellow-500 border-yellow-500/30",
+                      algo_stopped: "bg-gray-500/10 text-gray-400 border-gray-500/30",
+                    };
+                    const exitReasonLabels: Record<string, string> = {
+                      strategy_exit: "SIGNAL", stop_loss: "SL", take_profit: "TP",
+                      external: "EXTERNAL", algo_stopped: "STOPPED",
+                    };
+                    return (
+                      <React.Fragment key={t.id}>
+                        <TableRow
+                          className="cursor-pointer hover:bg-muted/50"
+                          onClick={() => setExpandedTradeId(expandedTradeId === t.id ? null : t.id)}
+                        >
+                          <TableCell>
+                            <Badge variant={t.direction === "buy" ? "default" : "destructive"} className="text-[10px]">
+                              {t.direction.toUpperCase()}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs max-w-[120px]">
+                            <p className="truncate font-medium" title={t.strategy_name}>{t.strategy_name}</p>
+                            {t.rule_name && <p className="text-[10px] text-muted-foreground truncate">{t.rule_name}</p>}
+                          </TableCell>
+                          <TableCell className="text-xs font-mono">{t.entry_price.toFixed(dec)}</TableCell>
+                          <TableCell className="text-xs font-mono">
+                            {t.exit_price != null ? t.exit_price.toFixed(dec) : (
+                              <Badge variant="outline" className="text-[9px]">OPEN</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {t.exit_reason ? (
+                              <Badge variant="outline" className={`text-[9px] ${exitReasonColors[t.exit_reason] || ""}`}>
+                                {exitReasonLabels[t.exit_reason] || t.exit_reason.toUpperCase()}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[9px]">OPEN</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs font-mono text-right">{t.bars_held ?? "---"}</TableCell>
+                          <TableCell className={`text-xs font-mono text-right ${
+                            t.net_pnl == null ? "" : t.net_pnl >= 0 ? "text-green-500" : "text-red-500"
+                          }`}>
+                            {t.net_pnl != null ? `${t.net_pnl >= 0 ? "+" : ""}$${t.net_pnl.toFixed(2)}` : "---"}
+                          </TableCell>
+                          <TableCell className="text-[10px] text-muted-foreground whitespace-nowrap">
+                            <div>{new Date(t.entry_time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+                            {t.exit_time && (
+                              <div className="text-[9px]">
+                                → {new Date(t.exit_time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                              </div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                        {/* Expanded detail row */}
+                        {expandedTradeId === t.id && (
+                          <TableRow>
+                            <TableCell colSpan={8} className="bg-muted/30 p-4">
+                              <div className="space-y-3">
+                                {/* Trade details */}
+                                <div className="flex flex-wrap gap-3 text-xs font-mono text-muted-foreground">
+                                  {t.sl_price != null && <span>SL: {t.sl_price.toFixed(dec)}</span>}
+                                  {t.tp_price != null && <span>TP: {t.tp_price.toFixed(dec)}</span>}
+                                  {t.atr_at_entry != null && <span>ATR: {t.atr_at_entry.toFixed(dec)}</span>}
+                                  {t.sl_atr_mult != null && <span>SL mult: {t.sl_atr_mult}x</span>}
+                                  {t.tp_atr_mult != null && <span>TP mult: {t.tp_atr_mult}x</span>}
+                                  <span>Vol: {t.volume}</span>
+                                  {t.mt5_ticket && <span>Ticket: #{t.mt5_ticket}</span>}
+                                  {t.profit != null && <span>Gross: ${t.profit.toFixed(2)}</span>}
+                                  {t.commission != null && <span>Comm: ${t.commission.toFixed(2)}</span>}
+                                  {t.swap != null && t.swap !== 0 && <span>Swap: ${t.swap.toFixed(2)}</span>}
+                                </div>
+                                {/* Entry conditions */}
+                                {t.entry_conditions.length > 0 && (
+                                  <div>
+                                    <p className="text-[10px] font-semibold uppercase text-muted-foreground mb-1">Entry Conditions</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {t.entry_conditions.map((c, i) => (
+                                        <span key={i} className={`text-[11px] font-mono px-2 py-0.5 rounded border ${c.passed ? "border-green-500/30 text-green-500" : "border-red-500/30 text-red-500"}`}>
+                                          {c.passed ? "\u2713" : "\u2717"} {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""} {c.operator} {String(c.value)}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                {/* Indicator snapshots */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  {Object.keys(t.entry_indicators).length > 0 && (
+                                    <div>
+                                      <p className="text-[10px] font-semibold uppercase text-muted-foreground mb-1">Entry Indicators</p>
+                                      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                                        {Object.entries(t.entry_indicators).map(([k, v]) => (
+                                          <div key={k} className="text-[11px] font-mono flex justify-between">
+                                            <span className="text-muted-foreground">{k}</span>
+                                            <span>{typeof v === "number" ? v.toFixed(4) : String(v ?? "---")}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {t.exit_indicators && Object.keys(t.exit_indicators).length > 0 && (
+                                    <div>
+                                      <p className="text-[10px] font-semibold uppercase text-muted-foreground mb-1">Exit Indicators</p>
+                                      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                                        {Object.entries(t.exit_indicators).map(([k, v]) => (
+                                          <div key={k} className="text-[11px] font-mono flex justify-between">
+                                            <span className="text-muted-foreground">{k}</span>
+                                            <span>{typeof v === "number" ? v.toFixed(4) : String(v ?? "---")}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      ) : tradeHistory.length > 0 ? (
+        /* Fallback: show old MT5 trade history if no algo trades recorded yet */
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base">Trade History (MT5)</CardTitle>
                 <CardDescription>
                   {tradeHistory.length} trade{tradeHistory.length !== 1 ? "s" : ""} on {symbol} (last 30 days)
                 </CardDescription>
@@ -1385,7 +1596,6 @@ export default function AlgoPage() {
                     <TableHead className="text-[10px]">Entry</TableHead>
                     <TableHead className="text-[10px]">Exit</TableHead>
                     <TableHead className="text-[10px] text-right">Vol</TableHead>
-                    <TableHead className="text-[10px] text-right">Profit</TableHead>
                     <TableHead className="text-[10px] text-right">Net</TableHead>
                     <TableHead className="text-[10px]">Time</TableHead>
                   </TableRow>
@@ -1408,11 +1618,6 @@ export default function AlgoPage() {
                         </TableCell>
                         <TableCell className="text-xs font-mono text-right">{t.volume}</TableCell>
                         <TableCell className={`text-xs font-mono text-right ${
-                          t.profit == null ? "" : t.profit >= 0 ? "text-green-500" : "text-red-500"
-                        }`}>
-                          {t.profit != null ? `${t.profit >= 0 ? "+" : ""}$${t.profit.toFixed(2)}` : "---"}
-                        </TableCell>
-                        <TableCell className={`text-xs font-mono text-right ${
                           t.net_pnl == null ? "" : t.net_pnl >= 0 ? "text-green-500" : "text-red-500"
                         }`}>
                           {t.net_pnl != null ? `${t.net_pnl >= 0 ? "+" : ""}$${t.net_pnl.toFixed(2)}` : "---"}
@@ -1433,7 +1638,7 @@ export default function AlgoPage() {
             </div>
           </CardContent>
         </Card>
-      )}
+      ) : null}
     </div>
   );
 }

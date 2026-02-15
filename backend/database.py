@@ -46,6 +46,39 @@ def init_db():
             created_at      TEXT NOT NULL,
             FOREIGN KEY (strategy_id) REFERENCES strategies(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS algo_trades (
+            id                TEXT PRIMARY KEY,
+            strategy_id       TEXT,
+            strategy_name     TEXT NOT NULL,
+            rule_index        INTEGER NOT NULL DEFAULT 0,
+            rule_name         TEXT NOT NULL DEFAULT '',
+            symbol            TEXT NOT NULL,
+            timeframe         TEXT NOT NULL,
+            direction         TEXT NOT NULL,
+            volume            REAL NOT NULL,
+            entry_price       REAL NOT NULL,
+            entry_time        TEXT NOT NULL,
+            sl_price          REAL,
+            tp_price          REAL,
+            sl_atr_mult       REAL,
+            tp_atr_mult       REAL,
+            atr_at_entry      REAL,
+            entry_indicators  TEXT NOT NULL DEFAULT '{}',
+            entry_conditions  TEXT NOT NULL DEFAULT '[]',
+            exit_price        REAL,
+            exit_time         TEXT,
+            exit_indicators   TEXT DEFAULT '{}',
+            exit_reason       TEXT,
+            bars_held         INTEGER,
+            profit            REAL,
+            commission        REAL,
+            swap              REAL,
+            net_pnl           REAL,
+            mt5_ticket        INTEGER,
+            status            TEXT NOT NULL DEFAULT 'open',
+            created_at        TEXT NOT NULL,
+            updated_at        TEXT NOT NULL
+        );
     """)
     conn.close()
 
@@ -238,3 +271,200 @@ def get_backtest(backtest_id: str) -> dict | None:
     ).fetchone()
     conn.close()
     return _row_to_backtest(row) if row else None
+
+
+# ── Algo Trade CRUD ──────────────────────────────────────────────
+
+
+def _row_to_algo_trade(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "strategy_id": row["strategy_id"],
+        "strategy_name": row["strategy_name"],
+        "rule_index": row["rule_index"],
+        "rule_name": row["rule_name"],
+        "symbol": row["symbol"],
+        "timeframe": row["timeframe"],
+        "direction": row["direction"],
+        "volume": row["volume"],
+        "entry_price": row["entry_price"],
+        "entry_time": row["entry_time"],
+        "sl_price": row["sl_price"],
+        "tp_price": row["tp_price"],
+        "sl_atr_mult": row["sl_atr_mult"],
+        "tp_atr_mult": row["tp_atr_mult"],
+        "atr_at_entry": row["atr_at_entry"],
+        "entry_indicators": json.loads(row["entry_indicators"]),
+        "entry_conditions": json.loads(row["entry_conditions"]),
+        "exit_price": row["exit_price"],
+        "exit_time": row["exit_time"],
+        "exit_indicators": json.loads(row["exit_indicators"] or "{}"),
+        "exit_reason": row["exit_reason"],
+        "bars_held": row["bars_held"],
+        "profit": row["profit"],
+        "commission": row["commission"],
+        "swap": row["swap"],
+        "net_pnl": row["net_pnl"],
+        "mt5_ticket": row["mt5_ticket"],
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def save_algo_trade(trade: dict) -> dict:
+    """Record a new algo trade at entry time."""
+    now = datetime.now(timezone.utc).isoformat()
+    trade_id = str(uuid.uuid4())
+    conn = _get_connection()
+    conn.execute(
+        """INSERT INTO algo_trades
+           (id, strategy_id, strategy_name, rule_index, rule_name,
+            symbol, timeframe, direction, volume,
+            entry_price, entry_time, sl_price, tp_price,
+            sl_atr_mult, tp_atr_mult, atr_at_entry,
+            entry_indicators, entry_conditions,
+            mt5_ticket, status, created_at, updated_at)
+           VALUES (?,?,?,?,?, ?,?,?,?, ?,?,?,?, ?,?,?, ?,?, ?,?,?,?)""",
+        (
+            trade_id,
+            trade.get("strategy_id"),
+            trade["strategy_name"],
+            trade.get("rule_index", 0),
+            trade.get("rule_name", ""),
+            trade["symbol"],
+            trade["timeframe"],
+            trade["direction"],
+            trade["volume"],
+            trade["entry_price"],
+            trade["entry_time"],
+            trade.get("sl_price"),
+            trade.get("tp_price"),
+            trade.get("sl_atr_mult"),
+            trade.get("tp_atr_mult"),
+            trade.get("atr_at_entry"),
+            json.dumps(trade.get("entry_indicators", {})),
+            json.dumps(trade.get("entry_conditions", [])),
+            trade.get("mt5_ticket"),
+            "open",
+            now,
+            now,
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return {**trade, "id": trade_id, "status": "open", "created_at": now, "updated_at": now}
+
+
+def close_algo_trade(trade_id: str, exit_data: dict) -> dict | None:
+    """Update an open algo trade with exit data."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _get_connection()
+    conn.execute(
+        """UPDATE algo_trades
+           SET exit_price = ?, exit_time = ?, exit_indicators = ?,
+               exit_reason = ?, bars_held = ?,
+               profit = ?, commission = ?, swap = ?, net_pnl = ?,
+               status = 'closed', updated_at = ?
+           WHERE id = ?""",
+        (
+            exit_data.get("exit_price"),
+            exit_data.get("exit_time"),
+            json.dumps(exit_data.get("exit_indicators", {})),
+            exit_data.get("exit_reason"),
+            exit_data.get("bars_held"),
+            exit_data.get("profit"),
+            exit_data.get("commission"),
+            exit_data.get("swap"),
+            exit_data.get("net_pnl"),
+            now,
+            trade_id,
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return get_algo_trade(trade_id)
+
+
+def close_algo_trade_by_ticket(mt5_ticket: int, exit_data: dict) -> dict | None:
+    """Close the open algo trade matching an MT5 ticket."""
+    conn = _get_connection()
+    row = conn.execute(
+        "SELECT id FROM algo_trades WHERE mt5_ticket = ? AND status = 'open'",
+        (mt5_ticket,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return close_algo_trade(row["id"], exit_data)
+
+
+def get_algo_trade(trade_id: str) -> dict | None:
+    conn = _get_connection()
+    row = conn.execute("SELECT * FROM algo_trades WHERE id = ?", (trade_id,)).fetchone()
+    conn.close()
+    return _row_to_algo_trade(row) if row else None
+
+
+def get_open_algo_trade() -> dict | None:
+    """Get the currently-open algo trade (if any)."""
+    conn = _get_connection()
+    row = conn.execute(
+        "SELECT * FROM algo_trades WHERE status = 'open' ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    return _row_to_algo_trade(row) if row else None
+
+
+def list_algo_trades(
+    strategy_id: str = None, symbol: str = None, limit: int = 100
+) -> list[dict]:
+    """List algo trades with optional filters."""
+    conn = _get_connection()
+    query = "SELECT * FROM algo_trades WHERE 1=1"
+    params: list = []
+    if strategy_id:
+        query += " AND strategy_id = ?"
+        params.append(strategy_id)
+    if symbol:
+        query += " AND symbol = ?"
+        params.append(symbol)
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    return [_row_to_algo_trade(r) for r in rows]
+
+
+def get_algo_trade_stats(
+    strategy_id: str = None, symbol: str = None
+) -> dict:
+    """Compute summary stats for closed algo trades."""
+    trades = list_algo_trades(strategy_id=strategy_id, symbol=symbol, limit=10000)
+    closed = [t for t in trades if t["status"] == "closed" and t["net_pnl"] is not None]
+    if not closed:
+        return {
+            "total_trades": 0, "winning_trades": 0, "losing_trades": 0,
+            "win_rate": 0.0, "total_pnl": 0.0, "avg_pnl": 0.0,
+            "avg_bars_held": 0.0, "best_trade": 0.0, "worst_trade": 0.0,
+            "exit_reasons": {},
+        }
+    wins = [t for t in closed if t["net_pnl"] > 0]
+    pnls = [t["net_pnl"] for t in closed]
+    bars = [t["bars_held"] for t in closed if t["bars_held"] is not None]
+    reasons: dict[str, int] = {}
+    for t in closed:
+        r = t["exit_reason"] or "unknown"
+        reasons[r] = reasons.get(r, 0) + 1
+    return {
+        "total_trades": len(closed),
+        "winning_trades": len(wins),
+        "losing_trades": len(closed) - len(wins),
+        "win_rate": round(len(wins) / len(closed) * 100, 1),
+        "total_pnl": round(sum(pnls), 2),
+        "avg_pnl": round(sum(pnls) / len(pnls), 2),
+        "avg_bars_held": round(sum(bars) / len(bars), 1) if bars else 0.0,
+        "best_trade": round(max(pnls), 2),
+        "worst_trade": round(min(pnls), 2),
+        "exit_reasons": reasons,
+    }

@@ -290,6 +290,63 @@ export const api = {
         } | null;
         active_rule_index: number;
       }>("/api/algo/status"),
+    trades: (strategyId?: string, symbol?: string, limit?: number) =>
+      request<Array<{
+        id: string;
+        strategy_id: string | null;
+        strategy_name: string;
+        rule_index: number;
+        rule_name: string;
+        symbol: string;
+        timeframe: string;
+        direction: string;
+        volume: number;
+        entry_price: number;
+        entry_time: string;
+        sl_price: number | null;
+        tp_price: number | null;
+        sl_atr_mult: number | null;
+        tp_atr_mult: number | null;
+        atr_at_entry: number | null;
+        entry_indicators: Record<string, number | string | null>;
+        entry_conditions: Array<{
+          description: string; indicator: string; parameter: string;
+          operator: string; value: number | string; passed: boolean;
+        }>;
+        exit_price: number | null;
+        exit_time: string | null;
+        exit_indicators: Record<string, number | string | null>;
+        exit_reason: string | null;
+        bars_held: number | null;
+        profit: number | null;
+        commission: number | null;
+        swap: number | null;
+        net_pnl: number | null;
+        mt5_ticket: number | null;
+        status: string;
+        created_at: string;
+        updated_at: string;
+      }>>(`/api/algo/trades?${new URLSearchParams({
+        ...(strategyId ? { strategy_id: strategyId } : {}),
+        ...(symbol ? { symbol } : {}),
+        ...(limit ? { limit: String(limit) } : {}),
+      }).toString()}`),
+    tradeStats: (strategyId?: string, symbol?: string) =>
+      request<{
+        total_trades: number;
+        winning_trades: number;
+        losing_trades: number;
+        win_rate: number;
+        total_pnl: number;
+        avg_pnl: number;
+        avg_bars_held: number;
+        best_trade: number;
+        worst_trade: number;
+        exit_reasons: Record<string, number>;
+      }>(`/api/algo/trades/stats?${new URLSearchParams({
+        ...(strategyId ? { strategy_id: strategyId } : {}),
+        ...(symbol ? { symbol } : {}),
+      }).toString()}`),
   },
 
   tutor: {

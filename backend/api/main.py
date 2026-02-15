@@ -42,6 +42,8 @@ def sanitize_for_json(obj):
 from backend.database import (
     init_db, save_strategy, list_strategies, get_strategy,
     update_strategy, delete_strategy, save_backtest, list_backtests, get_backtest,
+    save_algo_trade, close_algo_trade, close_algo_trade_by_ticket,
+    get_algo_trade, get_open_algo_trade, list_algo_trades, get_algo_trade_stats,
 )
 from config.settings import settings
 
@@ -106,6 +108,8 @@ algo_state = {
     "active_rule_index": 0,          # index of the rule being executed
     # TradeState — structured trade lifecycle tracking
     "trade_state": None,             # dict when in position, None otherwise
+    # DB trade record tracking
+    "current_algo_trade_id": None,   # ID of open algo_trades record
 }
 algo_thread = None
 algo_stop_event = threading.Event()
@@ -839,6 +843,75 @@ def _calculate_lot_size(equity, risk_percent, sl_distance, tick_value, tick_size
     return max(volume_min, min(volume_max, round(lots, 8)))
 
 
+def _get_mt5_exit_pnl(ticket, symbol):
+    """Fetch exit price and P&L from MT5 deal history for a just-closed position."""
+    try:
+        deals = connector.get_trade_history_by_symbol(symbol, days=1)
+        for d in deals:
+            if d["entry"] == "out" and d.get("position_id") == ticket:
+                profit = d.get("profit", 0) or 0
+                commission = d.get("commission", 0) or 0
+                swap = d.get("swap", 0) or 0
+                return {
+                    "exit_price": d["price"],
+                    "profit": profit,
+                    "commission": commission,
+                    "swap": swap,
+                    "net_pnl": round(profit + commission + swap, 2),
+                }
+    except Exception:
+        pass
+    return {"exit_price": None, "profit": None, "commission": None, "swap": None, "net_pnl": None}
+
+
+def _determine_exit_reason(ticket, symbol, trade_state):
+    """Determine whether a position was closed by SL, TP, or externally."""
+    try:
+        deals = connector.get_trade_history_by_symbol(symbol, days=1)
+        for d in deals:
+            if d["entry"] == "out" and d.get("position_id") == ticket:
+                exit_price = d["price"]
+                if trade_state:
+                    sl = trade_state.get("sl_price")
+                    tp = trade_state.get("tp_price")
+                    dir_ = trade_state.get("direction", "buy")
+                    if sl is not None:
+                        if dir_ == "buy" and exit_price <= sl * 1.0001:
+                            return "stop_loss"
+                        if dir_ == "sell" and exit_price >= sl * 0.9999:
+                            return "stop_loss"
+                    if tp is not None:
+                        if dir_ == "buy" and exit_price >= tp * 0.9999:
+                            return "take_profit"
+                        if dir_ == "sell" and exit_price <= tp * 1.0001:
+                            return "take_profit"
+                return "external"
+    except Exception:
+        pass
+    return "external"
+
+
+def _record_algo_trade_exit(exit_indicators, exit_reason, bars_held, symbol, ticket):
+    """Close the current algo trade record in DB with exit data."""
+    trade_id = algo_state.get("current_algo_trade_id")
+    if not trade_id:
+        return
+    pnl_data = _get_mt5_exit_pnl(ticket, symbol)
+    from datetime import datetime, timezone
+    close_algo_trade(trade_id, sanitize_for_json({
+        "exit_price": pnl_data.get("exit_price"),
+        "exit_time": datetime.now(timezone.utc).isoformat(),
+        "exit_indicators": exit_indicators,
+        "exit_reason": exit_reason,
+        "bars_held": bars_held,
+        "profit": pnl_data.get("profit"),
+        "commission": pnl_data.get("commission"),
+        "swap": pnl_data.get("swap"),
+        "net_pnl": pnl_data.get("net_pnl"),
+    }))
+    algo_state["current_algo_trade_id"] = None
+
+
 def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
     """Background thread: monitors market and trades based on strategy rules."""
     from backend.core.indicators import add_all_indicators, get_indicator_snapshot
@@ -863,6 +936,12 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
         additional_tfs = rule.get("additional_timeframes") or []
         direction = rule.get("direction", "buy")  # "buy" or "sell"
         algo_state["strategy_rules"] = rule
+
+        # Strategy context for DB trade recording
+        strategy_id = strategy.get("id")  # None for in-memory strategies
+        strategy_name = strategy.get("name", "Unknown")
+        rule_name = rule.get("name", "")
+        rule_index = 0
 
         connector.select_symbol(symbol)
 
@@ -917,6 +996,14 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                         "sl_atr_mult": sl_atr_mult,
                         "tp_atr_mult": tp_atr_mult,
                     })
+                    # Resume DB trade record if one exists for this ticket
+                    try:
+                        existing_db_trade = get_open_algo_trade()
+                        if existing_db_trade and existing_db_trade.get("mt5_ticket") == pos["ticket"]:
+                            algo_state["current_algo_trade_id"] = existing_db_trade["id"]
+                            _add_signal("info", f"Resumed DB trade record {existing_db_trade['id'][:8]}")
+                    except Exception:
+                        pass
                     break
         except Exception:
             pass
@@ -1093,12 +1180,14 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                                 volume=actual_volume,
                                 stop_loss=sl_price,
                                 take_profit=tp_price,
+                                comment=f"MT|{strategy_name[:20]}",
                             )
                             if result.get("success"):
                                 algo_state["in_position"] = True
                                 algo_state["position_ticket"] = result.get("order_id")
                                 algo_state["trades_placed"] += 1
                                 bars_in_trade = 0
+                                entry_time_iso = datetime.now(timezone.utc).isoformat()
                                 # Build TradeState
                                 algo_state["trade_state"] = sanitize_for_json({
                                     "ticket": result.get("order_id"),
@@ -1107,12 +1196,39 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                                     "tp_price": tp_price,
                                     "direction": direction,
                                     "volume": actual_volume,
-                                    "entry_time": datetime.now(timezone.utc).isoformat(),
+                                    "entry_time": entry_time_iso,
                                     "bars_since_entry": 0,
                                     "atr_at_entry": atr_val if atr_val > 0 else None,
                                     "sl_atr_mult": sl_atr_mult,
                                     "tp_atr_mult": tp_atr_mult,
                                 })
+                                # Record algo trade in DB
+                                try:
+                                    entry_snapshot = sanitize_for_json(get_indicator_snapshot(df, -1))
+                                    entry_cond_results = sanitize_for_json(entry_results)
+                                    db_trade = save_algo_trade(sanitize_for_json({
+                                        "strategy_id": strategy_id,
+                                        "strategy_name": strategy_name,
+                                        "rule_index": rule_index,
+                                        "rule_name": rule_name,
+                                        "symbol": symbol,
+                                        "timeframe": timeframe,
+                                        "direction": direction,
+                                        "volume": actual_volume,
+                                        "entry_price": entry_price,
+                                        "entry_time": entry_time_iso,
+                                        "sl_price": sl_price,
+                                        "tp_price": tp_price,
+                                        "sl_atr_mult": sl_atr_mult,
+                                        "tp_atr_mult": tp_atr_mult,
+                                        "atr_at_entry": atr_val if atr_val > 0 else None,
+                                        "entry_indicators": entry_snapshot,
+                                        "entry_conditions": entry_cond_results,
+                                        "mt5_ticket": result.get("order_id"),
+                                    }))
+                                    algo_state["current_algo_trade_id"] = db_trade["id"]
+                                except Exception as e:
+                                    _add_signal("warn", f"DB trade record failed: {e}")
                                 sl_str = f" SL={sl_price:.5f}" if sl_price else ""
                                 tp_str = f" TP={tp_price:.5f}" if tp_price else ""
                                 atr_str = f" ATR={atr_val:.5f}" if atr_val > 0 else ""
@@ -1135,6 +1251,12 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                                 if ticket:
                                     close_result = connector.close_position(ticket)
                                     if close_result.get("success"):
+                                        # Record strategy exit in DB
+                                        try:
+                                            exit_snap = sanitize_for_json(get_indicator_snapshot(df, -1))
+                                            _record_algo_trade_exit(exit_snap, "strategy_exit", bars_in_trade, symbol, ticket)
+                                        except Exception as e:
+                                            _add_signal("warn", f"DB exit record failed: {e}")
                                         _add_signal("close", f"Exit signal — closed ticket {ticket} | bars_held={bars_in_trade}")
                                         algo_state["in_position"] = False
                                         algo_state["position_ticket"] = None
@@ -1151,7 +1273,14 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                         ticket = algo_state["position_ticket"]
                         still_open = any(p["ticket"] == ticket for p in positions)
                         if not still_open:
-                            _add_signal("closed", f"Position {ticket} closed (SL/TP or manual) | bars_held={bars_in_trade}")
+                            # Record external exit in DB
+                            try:
+                                exit_snap = sanitize_for_json(get_indicator_snapshot(df, -1))
+                                exit_reason = _determine_exit_reason(ticket, symbol, algo_state.get("trade_state"))
+                                _record_algo_trade_exit(exit_snap, exit_reason, bars_in_trade, symbol, ticket)
+                            except Exception as e:
+                                _add_signal("warn", f"DB exit record failed: {e}")
+                            _add_signal("closed", f"Position {ticket} closed ({exit_reason}) | bars_held={bars_in_trade}")
                             algo_state["in_position"] = False
                             algo_state["position_ticket"] = None
                             algo_state["trade_state"] = None
@@ -1168,6 +1297,18 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
     except Exception as e:
         _add_signal("error", f"Algo crashed: {str(e)}")
     finally:
+        # If algo stopped while in position, mark the open DB trade
+        if algo_state.get("current_algo_trade_id"):
+            try:
+                from datetime import datetime, timezone as tz
+                close_algo_trade(algo_state["current_algo_trade_id"], {
+                    "exit_time": datetime.now(tz.utc).isoformat(),
+                    "exit_reason": "algo_stopped",
+                    "bars_held": bars_in_trade if "bars_in_trade" in dir() else 0,
+                })
+            except Exception:
+                pass
+            algo_state["current_algo_trade_id"] = None
         algo_state["running"] = False
 
 
@@ -1209,6 +1350,7 @@ def algo_start(req: AlgoStartRequest):
     algo_state["in_position"] = False
     algo_state["position_ticket"] = None
     algo_state["trade_state"] = None
+    algo_state["current_algo_trade_id"] = None
 
     algo_thread = threading.Thread(
         target=_algo_loop,
@@ -1250,6 +1392,27 @@ def algo_status():
         "active_rule_index": algo_state.get("active_rule_index", 0),
     }
     return JSONResponse(content=sanitize_for_json(data))
+
+
+@app.get("/api/algo/trades")
+def get_algo_trades_endpoint(strategy_id: str = None, symbol: str = None, limit: int = 100):
+    """Fetch recorded algo trades with full context."""
+    return list_algo_trades(strategy_id=strategy_id, symbol=symbol, limit=limit)
+
+
+@app.get("/api/algo/trades/stats")
+def get_algo_trades_stats_endpoint(strategy_id: str = None, symbol: str = None):
+    """Get summary stats for algo trades."""
+    return get_algo_trade_stats(strategy_id=strategy_id, symbol=symbol)
+
+
+@app.get("/api/algo/trades/{trade_id}")
+def get_algo_trade_detail_endpoint(trade_id: str):
+    """Get a single algo trade with full detail."""
+    trade = get_algo_trade(trade_id)
+    if not trade:
+        raise HTTPException(status_code=404, detail="Algo trade not found")
+    return trade
 
 
 @app.get("/api/health")
