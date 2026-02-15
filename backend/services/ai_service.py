@@ -118,11 +118,13 @@ CRITICAL RULES FOR CONDITIONS:
 - NEVER write conditions like EMA_50 > 0 or SMA_20 > 0 — these are MEANINGLESS (always true).
 - For crossovers between two indicators: {"indicator": "SMA_20", "parameter": "value", "operator": "crosses_above", "value": "EMA_50"}
 
-EXACT NUMERIC VALUES — THIS IS MANDATORY:
-- You MUST use the EXACT numbers the user specifies. Do NOT round or adjust thresholds.
-- If user says "RSI exit at 45", you MUST use 45, NOT 40. If user says "RSI > 55", use 55 NOT 60.
+EXACT NUMERIC VALUES — THIS IS MANDATORY (ZERO TOLERANCE):
+- You MUST use the EXACT numbers the user specifies. Do NOT round, adjust, or "improve" thresholds.
+- If user says "RSI exit at 45", you MUST use 45, NOT 40, NOT 50. Output exactly: "value": 45.
+- If user says "RSI > 55", you MUST use 55. If user says "RSI > 60", use 60.
 - Entry and exit thresholds are often intentionally asymmetric (e.g. entry RSI > 60, exit RSI < 45).
 - NEVER substitute standard textbook values (30/70, 20/80) when the user gives specific numbers.
+- Common mistakes to AVOID: changing 45→40, 55→60, 65→70, 35→30. Use the USER's number.
 
 ATR-BASED STOP LOSS / TAKE PROFIT:
 - When user describes ATR-based SL/TP, use "stop_loss_atr_multiplier" and "take_profit_atr_multiplier" fields.
@@ -139,8 +141,10 @@ MULTI-TIMEFRAME:
 MIN BARS IN TRADE:
 - "min_bars_in_trade" gates exit conditions — they won't fire until the trade has been open for N candles.
 - If user mentions "hold for at least 5 bars", "minimum 5 candles", or "wait 5 bars before exit" → set min_bars_in_trade: 5.
+- Use the EXACT number the user says. "5 bars" → 5, "3 bars" → 3, "10 bars" → 10. Do NOT default to 1.
 - This prevents whipsaw exits where RSI or other oscillators flip back right after entry.
 - SL/TP always fire regardless of min_bars (capital protection).
+- If the user does NOT mention min bars, set it to null (not 0, not 1).
 
 OTHER FIELDS:
 - "direction": "buy" or "sell" — which side this rule trades.

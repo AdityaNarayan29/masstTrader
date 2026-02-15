@@ -266,7 +266,9 @@ export const api = {
           sl_price: number | null; tp_price: number | null;
           direction: string; volume: number; entry_time: string;
           bars_since_entry: number; atr_at_entry: number | null;
+          sl_atr_mult: number | null; tp_atr_mult: number | null;
         } | null;
+        active_rule_index: number;
       }>("/api/algo/status"),
   },
 

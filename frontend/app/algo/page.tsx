@@ -49,6 +49,31 @@ interface HistoricalCandle {
 
 type AlgoStatus = import("@/hooks/use-live-stream").AlgoStatusData;
 
+interface FullRule {
+  name: string;
+  timeframe: string;
+  direction?: string;
+  description?: string;
+  entry_conditions: Array<{ indicator: string; parameter: string; operator: string; value: number | string; description: string }>;
+  exit_conditions: Array<{ indicator: string; parameter: string; operator: string; value: number | string; description: string }>;
+  stop_loss_pips: number | null;
+  take_profit_pips: number | null;
+  stop_loss_atr_multiplier?: number | null;
+  take_profit_atr_multiplier?: number | null;
+  min_bars_in_trade?: number | null;
+  additional_timeframes?: string[] | null;
+  risk_percent?: number;
+}
+
+interface FullStrategy {
+  id: string;
+  name: string;
+  symbol: string;
+  rules: FullRule[];
+  raw_description: string;
+  ai_explanation: string;
+}
+
 // Convert MT5 timeframe format ("M5", "H1") → frontend format ("5m", "1h")
 const MT5_TO_UI_TF: Record<string, string> = {
   M1: "1m", M5: "5m", M15: "15m", M30: "30m",
@@ -66,6 +91,9 @@ export default function AlgoPage() {
   const [symbol, setSymbol] = useState("");
   const [timeframe, setTimeframe] = useState("5m");
   const [volume, setVolume] = useState(0.01);
+
+  // Full strategy (with all rules) — fetched when strategy is selected
+  const [fullStrategy, setFullStrategy] = useState<FullStrategy | null>(null);
 
   // Algo state
   const [polledAlgo, setPolledAlgo] = useState<AlgoStatus | null>(null);
@@ -171,6 +199,17 @@ export default function AlgoPage() {
       }
     }).catch(() => {});
   }, []);
+
+  // Fetch full strategy (with ALL rules) when selection changes
+  useEffect(() => {
+    if (strategyId === "__current__" || !strategyId) {
+      setFullStrategy(null);
+      return;
+    }
+    api.strategies.get(strategyId).then((s) => {
+      setFullStrategy(s as unknown as FullStrategy);
+    }).catch(() => setFullStrategy(null));
+  }, [strategyId]);
 
   // Poll algo status every 1s (HTTP baseline; SSE overlays when available)
   useEffect(() => {
@@ -416,57 +455,103 @@ export default function AlgoPage() {
             )}
           </div>
 
-          {/* Strategy preview */}
-          {selectedStrategy && !algo?.running && (
-            <div className="border-t pt-3 space-y-3">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-medium">{selectedStrategy.name}</span>
-                <Badge variant="outline" className="text-[10px]">{selectedStrategy.symbol}</Badge>
-                <Badge variant="outline" className="text-[10px]">{selectedStrategy.timeframe}</Badge>
-                <Badge variant="outline" className="text-[10px]">{selectedStrategy.direction.toUpperCase()}</Badge>
-                {selectedStrategy.stop_loss_atr_multiplier != null && (
-                  <Badge variant="destructive" className="text-[10px]">SL {selectedStrategy.stop_loss_atr_multiplier}x ATR</Badge>
-                )}
-                {selectedStrategy.stop_loss_pips != null && !selectedStrategy.stop_loss_atr_multiplier && (
-                  <Badge variant="destructive" className="text-[10px]">SL {selectedStrategy.stop_loss_pips} pips</Badge>
-                )}
-                {selectedStrategy.take_profit_atr_multiplier != null && (
-                  <Badge className="bg-green-600 hover:bg-green-600/90 text-white text-[10px]">TP {selectedStrategy.take_profit_atr_multiplier}x ATR</Badge>
-                )}
-                {selectedStrategy.take_profit_pips != null && !selectedStrategy.take_profit_atr_multiplier && (
-                  <Badge className="bg-green-600 hover:bg-green-600/90 text-white text-[10px]">TP {selectedStrategy.take_profit_pips} pips</Badge>
-                )}
-                {selectedStrategy.min_bars_in_trade != null && (
-                  <Badge variant="outline" className="text-[10px]">Min {selectedStrategy.min_bars_in_trade} bars</Badge>
-                )}
-                {selectedStrategy.additional_timeframes && selectedStrategy.additional_timeframes.length > 0 && (
-                  <Badge variant="outline" className="text-[10px]">+{selectedStrategy.additional_timeframes.join(",")}</Badge>
-                )}
+          {/* Strategy preview — all rules */}
+          {selectedStrategy && !algo?.running && (() => {
+            const rules = fullStrategy?.rules ?? [];
+            // Fallback: if full strategy not loaded yet, show first rule from list data
+            const displayRules: FullRule[] = rules.length > 0 ? rules : [{
+              name: selectedStrategy.name,
+              timeframe: selectedStrategy.timeframe,
+              direction: selectedStrategy.direction,
+              entry_conditions: selectedStrategy.entry_conditions,
+              exit_conditions: selectedStrategy.exit_conditions,
+              stop_loss_pips: selectedStrategy.stop_loss_pips,
+              take_profit_pips: selectedStrategy.take_profit_pips,
+              stop_loss_atr_multiplier: selectedStrategy.stop_loss_atr_multiplier,
+              take_profit_atr_multiplier: selectedStrategy.take_profit_atr_multiplier,
+              min_bars_in_trade: selectedStrategy.min_bars_in_trade,
+              additional_timeframes: selectedStrategy.additional_timeframes,
+            }];
+            return (
+              <div className="border-t pt-3 space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{fullStrategy?.name ?? selectedStrategy.name}</span>
+                  <Badge variant="outline" className="text-[10px]">{selectedStrategy.symbol}</Badge>
+                  {displayRules.length > 1 && (
+                    <Badge variant="secondary" className="text-[10px]">{displayRules.length} rules</Badge>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {displayRules.map((rule, ri) => {
+                    const isActive = ri === 0;
+                    const dir = rule.direction || "buy";
+                    const borderColor = dir === "buy" ? "border-green-500/30" : "border-red-500/30";
+                    const bgColor = dir === "buy" ? "bg-green-500/5" : "bg-red-500/5";
+                    return (
+                      <div key={ri} className={`rounded-lg border ${borderColor} ${bgColor} p-3 space-y-2`}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant={dir === "buy" ? "default" : "destructive"} className="text-[10px]">
+                            {dir.toUpperCase()}
+                          </Badge>
+                          {isActive && (
+                            <Badge variant="outline" className="text-[10px] border-blue-500/50 text-blue-500">
+                              ACTIVE
+                            </Badge>
+                          )}
+                          {!isActive && (
+                            <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                              DORMANT
+                            </Badge>
+                          )}
+                          <Badge variant="outline" className="text-[10px]">{rule.timeframe}</Badge>
+                          {rule.stop_loss_atr_multiplier != null && (
+                            <Badge variant="destructive" className="text-[10px]">SL {rule.stop_loss_atr_multiplier}x ATR</Badge>
+                          )}
+                          {rule.stop_loss_pips != null && !rule.stop_loss_atr_multiplier && (
+                            <Badge variant="destructive" className="text-[10px]">SL {rule.stop_loss_pips} pips</Badge>
+                          )}
+                          {rule.take_profit_atr_multiplier != null && (
+                            <Badge className="bg-green-600 hover:bg-green-600/90 text-white text-[10px]">TP {rule.take_profit_atr_multiplier}x ATR</Badge>
+                          )}
+                          {rule.take_profit_pips != null && !rule.take_profit_atr_multiplier && (
+                            <Badge className="bg-green-600 hover:bg-green-600/90 text-white text-[10px]">TP {rule.take_profit_pips} pips</Badge>
+                          )}
+                          {rule.min_bars_in_trade != null && (
+                            <Badge variant="outline" className="text-[10px]">Min {rule.min_bars_in_trade} bars</Badge>
+                          )}
+                          {rule.additional_timeframes && rule.additional_timeframes.length > 0 && (
+                            <Badge variant="outline" className="text-[10px]">+{rule.additional_timeframes.join(",")}</Badge>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {rule.entry_conditions.length > 0 && (
+                            <div className="space-y-0.5">
+                              <p className="text-[10px] font-semibold uppercase text-green-600">Entry ({rule.entry_conditions.length})</p>
+                              {rule.entry_conditions.map((c, ci) => (
+                                <p key={ci} className="text-xs font-mono text-muted-foreground">
+                                  {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""} {c.operator} {String(c.value)}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                          {rule.exit_conditions.length > 0 && (
+                            <div className="space-y-0.5">
+                              <p className="text-[10px] font-semibold uppercase text-red-600">Exit ({rule.exit_conditions.length})</p>
+                              {rule.exit_conditions.map((c, ci) => (
+                                <p key={ci} className="text-xs font-mono text-muted-foreground">
+                                  {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""} {c.operator} {String(c.value)}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {selectedStrategy.entry_conditions.length > 0 && (
-                  <div className="rounded-md border border-green-500/20 bg-green-500/5 p-2.5 space-y-1">
-                    <p className="text-[10px] font-semibold uppercase text-green-600">Entry ({selectedStrategy.entry_conditions.length})</p>
-                    {selectedStrategy.entry_conditions.map((c, i) => (
-                      <p key={i} className="text-xs font-mono text-muted-foreground">
-                        {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""} {c.operator} {String(c.value)}
-                      </p>
-                    ))}
-                  </div>
-                )}
-                {selectedStrategy.exit_conditions.length > 0 && (
-                  <div className="rounded-md border border-red-500/20 bg-red-500/5 p-2.5 space-y-1">
-                    <p className="text-[10px] font-semibold uppercase text-red-600">Exit ({selectedStrategy.exit_conditions.length})</p>
-                    {selectedStrategy.exit_conditions.map((c, i) => (
-                      <p key={i} className="text-xs font-mono text-muted-foreground">
-                        {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""} {c.operator} {String(c.value)}
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Algo status bar (when running) */}
           {algo?.running && (
@@ -610,54 +695,122 @@ export default function AlgoPage() {
         </Card>
       )}
 
-      {/* TradeState Card — shows calculated entry/SL/TP from algo engine */}
-      {algo?.trade_state && algo.in_position && (
-        <Card className="border border-blue-500/30 bg-blue-500/5">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-blue-500">Trade State (Engine Calculated)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              <div>
-                <p className="text-[10px] text-muted-foreground uppercase">Direction</p>
-                <Badge variant={algo.trade_state.direction === "buy" ? "default" : "destructive"} className="mt-0.5">
-                  {algo.trade_state.direction.toUpperCase()}
-                </Badge>
+      {/* TradeState Card — entry/SL/TP with distances and R-progress */}
+      {algo?.trade_state && algo.in_position && (() => {
+        const ts = algo.trade_state;
+        const dec = isBigPrice ? 2 : 5;
+        const curPrice = price ? (ts.direction === "buy" ? price.bid : price.ask) : ts.entry_price;
+        const slDist = ts.sl_price ? Math.abs(curPrice - ts.sl_price) : null;
+        const tpDist = ts.tp_price ? Math.abs(ts.tp_price - curPrice) : null;
+        const slPct = ts.sl_price ? ((slDist! / curPrice) * 100) : null;
+        const tpPct = ts.tp_price ? ((tpDist! / curPrice) * 100) : null;
+        // R-multiple: how far from entry relative to risk (SL distance)
+        const riskDist = ts.sl_price ? Math.abs(ts.entry_price - ts.sl_price) : null;
+        const pnlDist = ts.direction === "buy" ? curPrice - ts.entry_price : ts.entry_price - curPrice;
+        const rMultiple = riskDist && riskDist > 0 ? pnlDist / riskDist : null;
+        // Progress: 0% = SL, 50% = entry, 100% = TP
+        const totalRange = (ts.sl_price && ts.tp_price) ? Math.abs(ts.tp_price - ts.sl_price) : null;
+        const progressPct = (totalRange && ts.sl_price != null)
+          ? Math.min(100, Math.max(0, ((ts.direction === "buy" ? curPrice - ts.sl_price : ts.sl_price - curPrice) / totalRange) * 100))
+          : null;
+        const entryPct = (totalRange && ts.sl_price != null)
+          ? ((ts.direction === "buy" ? ts.entry_price - ts.sl_price : ts.sl_price - ts.entry_price) / totalRange) * 100
+          : null;
+
+        return (
+          <Card className="border border-blue-500/30 bg-blue-500/5">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm text-blue-500">Trade State</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Badge variant={ts.direction === "buy" ? "default" : "destructive"}>
+                    {ts.direction.toUpperCase()}
+                  </Badge>
+                  {rMultiple != null && (
+                    <span className={`text-sm font-mono font-bold ${rMultiple >= 0 ? "text-green-500" : "text-red-500"}`}>
+                      {rMultiple >= 0 ? "+" : ""}{rMultiple.toFixed(2)}R
+                    </span>
+                  )}
+                </div>
               </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground uppercase">Entry</p>
-                <p className="text-sm font-mono font-semibold text-blue-500">
-                  {algo.trade_state.entry_price.toFixed(symbol.includes("BTC") ? 2 : 5)}
-                </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* SL → Entry → TP progress bar */}
+              {progressPct != null && entryPct != null && (
+                <div className="space-y-1">
+                  <div className="relative h-3 rounded-full bg-muted overflow-hidden">
+                    {/* Progress fill */}
+                    <div
+                      className={`absolute inset-y-0 left-0 rounded-full transition-all ${pnlDist >= 0 ? "bg-green-500/60" : "bg-red-500/60"}`}
+                      style={{ width: `${progressPct}%` }}
+                    />
+                    {/* Entry marker */}
+                    <div
+                      className="absolute top-0 bottom-0 w-0.5 bg-blue-500"
+                      style={{ left: `${entryPct}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[9px] text-muted-foreground font-mono">
+                    <span className="text-red-500">SL</span>
+                    <span className="text-blue-500">Entry</span>
+                    <span className="text-green-500">TP</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Price levels grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase">Entry</p>
+                  <p className="text-sm font-mono font-semibold text-blue-500">
+                    {ts.entry_price.toFixed(dec)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase">
+                    SL {ts.sl_atr_mult ? `(${ts.sl_atr_mult}x ATR)` : ""}
+                  </p>
+                  <p className="text-sm font-mono font-semibold text-red-500">
+                    {ts.sl_price ? ts.sl_price.toFixed(dec) : "---"}
+                  </p>
+                  {slDist != null && (
+                    <p className="text-[10px] text-muted-foreground font-mono">
+                      -{slDist.toFixed(dec)} ({slPct!.toFixed(2)}%)
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase">
+                    TP {ts.tp_atr_mult ? `(${ts.tp_atr_mult}x ATR)` : ""}
+                  </p>
+                  <p className="text-sm font-mono font-semibold text-green-500">
+                    {ts.tp_price ? ts.tp_price.toFixed(dec) : "---"}
+                  </p>
+                  {tpDist != null && (
+                    <p className="text-[10px] text-muted-foreground font-mono">
+                      +{tpDist.toFixed(dec)} ({tpPct!.toFixed(2)}%)
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase">Bars Held</p>
+                  <p className="text-sm font-mono font-semibold">{ts.bars_since_entry}</p>
+                  {ts.atr_at_entry != null && (
+                    <p className="text-[10px] text-muted-foreground font-mono">ATR: {ts.atr_at_entry.toFixed(dec)}</p>
+                  )}
+                </div>
               </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground uppercase">SL</p>
-                <p className="text-sm font-mono font-semibold text-red-500">
-                  {algo.trade_state.sl_price ? algo.trade_state.sl_price.toFixed(symbol.includes("BTC") ? 2 : 5) : "---"}
-                </p>
+
+              {/* Meta line */}
+              <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
+                <span>Vol: {ts.volume}</span>
+                <span>#{ts.ticket}</span>
+                <span>{new Date(ts.entry_time).toLocaleTimeString()}</span>
               </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground uppercase">TP</p>
-                <p className="text-sm font-mono font-semibold text-green-500">
-                  {algo.trade_state.tp_price ? algo.trade_state.tp_price.toFixed(symbol.includes("BTC") ? 2 : 5) : "---"}
-                </p>
-              </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground uppercase">Bars Held</p>
-                <p className="text-sm font-mono font-semibold">{algo.trade_state.bars_since_entry}</p>
-                {algo.trade_state.atr_at_entry != null && (
-                  <p className="text-[10px] text-muted-foreground">ATR: {algo.trade_state.atr_at_entry.toFixed(5)}</p>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-4 mt-2 text-[10px] text-muted-foreground">
-              <span>Vol: {algo.trade_state.volume}</span>
-              <span>Ticket: #{algo.trade_state.ticket}</span>
-              <span>Entry: {new Date(algo.trade_state.entry_time).toLocaleTimeString()}</span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Account Info */}
       {account && (
@@ -734,119 +887,367 @@ export default function AlgoPage() {
         </Card>
       )}
 
-      {/* Algo Conditions + Signals */}
-      {algo?.running && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Strategy Monitor</CardTitle>
-            <CardDescription>Live condition evaluation and trade signals</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Entry & Exit Conditions */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {(algo.entry_conditions?.length ?? 0) > 0 && (
-                <div className="rounded-lg border p-3 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-semibold uppercase text-muted-foreground">Entry Conditions</p>
-                    <Badge
-                      variant={algo.entry_conditions!.every(c => c.passed) ? "default" : "secondary"}
-                      className="text-[10px]"
-                    >
-                      {algo.entry_conditions!.filter(c => c.passed).length}/{algo.entry_conditions!.length}
-                    </Badge>
-                  </div>
-                  {algo.entry_conditions!.map((c, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs">
-                      <span className={`shrink-0 text-base ${c.passed ? "text-green-500" : "text-red-500"}`}>
-                        {c.passed ? "\u2713" : "\u2717"}
-                      </span>
-                      <span className="font-mono">
-                        {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""}{" "}
-                        {c.operator} {String(c.value)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {(algo.exit_conditions?.length ?? 0) > 0 && (
-                <div className="rounded-lg border p-3 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-semibold uppercase text-muted-foreground">Exit Conditions</p>
-                    <Badge
-                      variant={algo.exit_conditions!.every(c => c.passed) ? "default" : "secondary"}
-                      className={`text-[10px] ${algo.exit_conditions!.every(c => c.passed) ? "bg-red-600" : ""}`}
-                    >
-                      {algo.exit_conditions!.filter(c => c.passed).length}/{algo.exit_conditions!.length}
-                    </Badge>
-                  </div>
-                  {algo.exit_conditions!.map((c, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs">
-                      <span className={`shrink-0 text-base ${c.passed ? "text-green-500" : "text-red-500"}`}>
-                        {c.passed ? "\u2713" : "\u2717"}
-                      </span>
-                      <span className="font-mono">
-                        {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""}{" "}
-                        {c.operator} {String(c.value)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+      {/* What Happens Next + Strategy Monitor */}
+      {algo?.running && (() => {
+        const rules = fullStrategy?.rules ?? [];
+        const activeIdx = algo.active_rule_index ?? 0;
+        const activeRule = rules[activeIdx] as FullRule | undefined;
+        const inPos = algo.in_position;
 
-            {/* Signal Log */}
-            {algo.signals.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold uppercase text-muted-foreground mb-2">Signal Log</p>
-                <div className="rounded-md border max-h-64 overflow-y-auto">
-                  <div className="p-3 space-y-1.5">
-                    {[...algo.signals].reverse().map((sig, i) => (
-                      <div key={i} className="flex items-start gap-2 text-xs">
-                        <span className="text-muted-foreground font-mono shrink-0 w-16">
-                          {new Date(sig.time).toLocaleTimeString()}
-                        </span>
-                        <Badge
-                          variant={
-                            sig.action === "buy" || sig.action === "sell"
-                              ? "default"
-                              : sig.action === "close" || sig.action === "closed"
-                                ? "secondary"
-                                : sig.action === "error"
-                                  ? "destructive"
-                                  : sig.action === "warn"
-                                    ? "outline"
-                                    : "outline"
-                          }
-                          className={`text-[10px] shrink-0 w-14 justify-center ${
-                            sig.action === "warn" ? "border-yellow-500/50 text-yellow-500" : ""
-                          }`}
-                        >
-                          {sig.action.toUpperCase()}
-                        </Badge>
-                        <span className="text-muted-foreground font-mono break-all">
-                          {/* Highlight pass/fail markers in signal details */}
-                          {sig.detail.split(" | ").map((part, pi) => {
-                            const hasPass = part.endsWith("+");
-                            const hasFail = part.endsWith("-");
-                            return (
-                              <span key={pi}>
-                                {pi > 0 && <span className="text-border mx-0.5">|</span>}
-                                <span className={hasPass ? "text-green-500" : hasFail ? "text-red-500" : ""}>
-                                  {part}
-                                </span>
-                              </span>
-                            );
-                          })}
-                        </span>
+        // "What happens next" logic
+        const failingEntry = (algo.entry_conditions ?? []).filter(c => !c.passed);
+        const failingExit = (algo.exit_conditions ?? []).filter(c => !c.passed);
+        const minBars = activeRule?.min_bars_in_trade ?? 0;
+        const barsHeld = algo.trade_state?.bars_since_entry ?? 0;
+        const barsNeeded = minBars > 0 ? Math.max(0, minBars - barsHeld) : 0;
+        const dec = isBigPrice ? 2 : 5;
+
+        return (
+          <>
+            {/* What Happens Next */}
+            <Card className="border-amber-500/30 bg-amber-500/5">
+              <CardContent className="py-4 space-y-2">
+                <p className="text-xs font-semibold uppercase text-amber-600 dark:text-amber-400">What Happens Next</p>
+                {!inPos ? (
+                  <div className="space-y-1.5">
+                    <p className="text-sm font-medium">
+                      Waiting for <Badge variant="default" className="text-[10px] mx-1">ENTRY</Badge>
+                      {failingEntry.length > 0
+                        ? <span className="text-muted-foreground"> — need {failingEntry.length} more condition{failingEntry.length > 1 ? "s" : ""}</span>
+                        : <span className="text-green-500"> — all conditions met, entering on next tick</span>
+                      }
+                    </p>
+                    {failingEntry.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {failingEntry.map((c, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 rounded-md border border-red-500/20 bg-red-500/5 px-2 py-0.5 text-[11px] font-mono text-red-500">
+                            <span className="text-red-500">{"\u2717"}</span>
+                            {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""} {c.operator} {String(c.value)}
+                          </span>
+                        ))}
                       </div>
+                    )}
+                    {/* Show dormant rules as "also watching for" */}
+                    {rules.length > 1 && rules.filter((_, i) => i !== activeIdx).map((r, i) => (
+                      <p key={i} className="text-[11px] text-muted-foreground">
+                        <Badge variant="outline" className="text-[9px] mr-1">{(r.direction || "buy").toUpperCase()}</Badge>
+                        rule not monitored (dormant) — {r.entry_conditions.length} entry conditions
+                      </p>
                     ))}
                   </div>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+                ) : (
+                  <div className="space-y-1.5">
+                    <p className="text-sm font-medium">
+                      Waiting for <Badge variant="secondary" className="text-[10px] mx-1">EXIT</Badge>
+                      {barsNeeded > 0
+                        ? <span className="text-yellow-500"> — gated for {barsNeeded} more bar{barsNeeded > 1 ? "s" : ""}</span>
+                        : failingExit.length > 0
+                          ? <span className="text-muted-foreground"> — need {failingExit.length} condition{failingExit.length > 1 ? "s" : ""} OR SL/TP hit</span>
+                          : <span className="text-green-500"> — all exit conditions met, closing on next tick</span>
+                      }
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {barsNeeded > 0 && (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-yellow-500/20 bg-yellow-500/5 px-2 py-0.5 text-[11px] font-mono text-yellow-500">
+                          min_bars: {barsHeld}/{minBars}
+                        </span>
+                      )}
+                      {failingExit.map((c, i) => (
+                        <span key={i} className="inline-flex items-center gap-1 rounded-md border border-red-500/20 bg-red-500/5 px-2 py-0.5 text-[11px] font-mono text-red-500">
+                          <span>{"\u2717"}</span>
+                          {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""} {c.operator} {String(c.value)}
+                        </span>
+                      ))}
+                      {algo.trade_state?.sl_price != null && (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-red-500/20 bg-red-500/5 px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
+                          SL @ {algo.trade_state.sl_price.toFixed(dec)}
+                        </span>
+                      )}
+                      {algo.trade_state?.tp_price != null && (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-green-500/20 bg-green-500/5 px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
+                          TP @ {algo.trade_state.tp_price.toFixed(dec)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Strategy Monitor — all rules */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Strategy Monitor</CardTitle>
+                <CardDescription>
+                  {rules.length > 1
+                    ? `${rules.length} rules — active rule highlighted with live evaluation`
+                    : "Live condition evaluation and trade signals"
+                  }
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Rules */}
+                {rules.length > 0 ? (
+                  <div className="space-y-3">
+                    {rules.map((rule, ri) => {
+                      const isActive = ri === activeIdx;
+                      const dir = rule.direction || "buy";
+                      const ruleEntryConditions = isActive ? (algo.entry_conditions ?? []) : [];
+                      const ruleExitConditions = isActive ? (algo.exit_conditions ?? []) : [];
+
+                      return (
+                        <div
+                          key={ri}
+                          className={`rounded-lg border p-3 space-y-3 ${
+                            isActive
+                              ? "border-blue-500/40 bg-blue-500/5"
+                              : "border-border/50 opacity-60"
+                          }`}
+                        >
+                          {/* Rule header */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge variant={dir === "buy" ? "default" : "destructive"} className="text-[10px]">
+                              {dir.toUpperCase()}
+                            </Badge>
+                            {isActive ? (
+                              <Badge variant="outline" className="text-[10px] border-blue-500/50 text-blue-500 animate-pulse">
+                                ACTIVE
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                                DORMANT
+                              </Badge>
+                            )}
+                            {rule.name && <span className="text-xs text-muted-foreground">{rule.name}</span>}
+                            <Badge variant="outline" className="text-[10px]">{rule.timeframe}</Badge>
+                            {rule.stop_loss_atr_multiplier != null && (
+                              <Badge variant="destructive" className="text-[9px]">SL {rule.stop_loss_atr_multiplier}x ATR</Badge>
+                            )}
+                            {rule.take_profit_atr_multiplier != null && (
+                              <Badge className="bg-green-600 text-white text-[9px]">TP {rule.take_profit_atr_multiplier}x ATR</Badge>
+                            )}
+                            {rule.min_bars_in_trade != null && (
+                              <Badge variant="outline" className="text-[9px]">Min {rule.min_bars_in_trade} bars</Badge>
+                            )}
+                          </div>
+
+                          {/* Conditions */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {/* Entry conditions */}
+                            <div className="space-y-1.5">
+                              <div className="flex items-center gap-2">
+                                <p className="text-[10px] font-semibold uppercase text-muted-foreground">Entry</p>
+                                {isActive && ruleEntryConditions.length > 0 && (
+                                  <Badge
+                                    variant={ruleEntryConditions.every(c => c.passed) ? "default" : "secondary"}
+                                    className="text-[9px]"
+                                  >
+                                    {ruleEntryConditions.filter(c => c.passed).length}/{ruleEntryConditions.length}
+                                  </Badge>
+                                )}
+                              </div>
+                              {isActive && ruleEntryConditions.length > 0
+                                ? ruleEntryConditions.map((c, ci) => (
+                                    <div key={ci} className="flex items-center gap-2 text-xs">
+                                      <span className={`shrink-0 text-base ${c.passed ? "text-green-500" : "text-red-500"}`}>
+                                        {c.passed ? "\u2713" : "\u2717"}
+                                      </span>
+                                      <span className="font-mono">
+                                        {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""}{" "}
+                                        {c.operator} {String(c.value)}
+                                      </span>
+                                    </div>
+                                  ))
+                                : rule.entry_conditions.map((c, ci) => (
+                                    <p key={ci} className="text-xs font-mono text-muted-foreground">
+                                      {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""} {c.operator} {String(c.value)}
+                                    </p>
+                                  ))
+                              }
+                            </div>
+
+                            {/* Exit conditions */}
+                            <div className="space-y-1.5">
+                              <p className="text-[10px] font-semibold uppercase text-muted-foreground">
+                                Exit {isActive ? "(all types)" : ""}
+                              </p>
+                              {/* SL/TP virtual conditions — only for active rule when in position */}
+                              {isActive && algo.trade_state?.sl_price != null && (() => {
+                                const curP = price ? (algo.trade_state!.direction === "buy" ? price.bid : price.ask) : 0;
+                                const slHit = algo.trade_state!.direction === "buy"
+                                  ? curP <= algo.trade_state!.sl_price!
+                                  : curP >= algo.trade_state!.sl_price!;
+                                return (
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className={`shrink-0 text-base ${slHit ? "text-red-500" : "text-muted-foreground"}`}>
+                                      {slHit ? "\u2717" : "\u2713"}
+                                    </span>
+                                    <span className="font-mono">
+                                      Price {algo.trade_state!.direction === "buy" ? "<=" : ">="} {algo.trade_state!.sl_price!.toFixed(dec)}
+                                    </span>
+                                    <Badge variant="destructive" className="text-[9px] h-4">SL</Badge>
+                                  </div>
+                                );
+                              })()}
+                              {isActive && algo.trade_state?.tp_price != null && (() => {
+                                const curP = price ? (algo.trade_state!.direction === "buy" ? price.bid : price.ask) : 0;
+                                const tpHit = algo.trade_state!.direction === "buy"
+                                  ? curP >= algo.trade_state!.tp_price!
+                                  : curP <= algo.trade_state!.tp_price!;
+                                return (
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className={`shrink-0 text-base ${tpHit ? "text-green-500" : "text-muted-foreground"}`}>
+                                      {tpHit ? "\u2713" : "\u2717"}
+                                    </span>
+                                    <span className="font-mono">
+                                      Price {algo.trade_state!.direction === "buy" ? ">=" : "<="} {algo.trade_state!.tp_price!.toFixed(dec)}
+                                    </span>
+                                    <Badge className="bg-green-600 text-white text-[9px] h-4">TP</Badge>
+                                  </div>
+                                );
+                              })()}
+                              {/* Strategy exit conditions */}
+                              {isActive && ruleExitConditions.length > 0
+                                ? ruleExitConditions.map((c, ci) => {
+                                    const gated = algo.trade_state && rule.min_bars_in_trade
+                                      ? algo.trade_state.bars_since_entry < rule.min_bars_in_trade
+                                      : false;
+                                    return (
+                                      <div key={ci} className="flex items-center gap-2 text-xs">
+                                        <span className={`shrink-0 text-base ${c.passed ? "text-green-500" : "text-red-500"}`}>
+                                          {c.passed ? "\u2713" : "\u2717"}
+                                        </span>
+                                        <span className="font-mono">
+                                          {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""}{" "}
+                                          {c.operator} {String(c.value)}
+                                        </span>
+                                        {gated && (
+                                          <span className="text-[9px] text-yellow-500">(gated: {algo.trade_state!.bars_since_entry}/{rule.min_bars_in_trade} bars)</span>
+                                        )}
+                                      </div>
+                                    );
+                                  })
+                                : rule.exit_conditions.map((c, ci) => (
+                                    <p key={ci} className="text-xs font-mono text-muted-foreground">
+                                      {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""} {c.operator} {String(c.value)}
+                                    </p>
+                                  ))
+                              }
+                              {rule.exit_conditions.length === 0 && !isActive && (
+                                <p className="text-xs text-muted-foreground">No exit conditions</p>
+                              )}
+                              {isActive && ruleExitConditions.length === 0 && !algo.trade_state?.sl_price && !algo.trade_state?.tp_price && rule.exit_conditions.length === 0 && (
+                                <p className="text-xs text-muted-foreground">No exit conditions defined</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  /* Fallback: no full strategy loaded, show flat conditions like before */
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {(algo.entry_conditions?.length ?? 0) > 0 && (
+                      <div className="rounded-lg border p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-semibold uppercase text-muted-foreground">Entry Conditions</p>
+                          <Badge
+                            variant={algo.entry_conditions!.every(c => c.passed) ? "default" : "secondary"}
+                            className="text-[10px]"
+                          >
+                            {algo.entry_conditions!.filter(c => c.passed).length}/{algo.entry_conditions!.length}
+                          </Badge>
+                        </div>
+                        {algo.entry_conditions!.map((c, i) => (
+                          <div key={i} className="flex items-center gap-2 text-xs">
+                            <span className={`shrink-0 text-base ${c.passed ? "text-green-500" : "text-red-500"}`}>
+                              {c.passed ? "\u2713" : "\u2717"}
+                            </span>
+                            <span className="font-mono">
+                              {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""}{" "}
+                              {c.operator} {String(c.value)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(algo.exit_conditions?.length ?? 0) > 0 && (
+                      <div className="rounded-lg border p-3 space-y-2">
+                        <p className="text-xs font-semibold uppercase text-muted-foreground">Exit Conditions</p>
+                        {algo.exit_conditions!.map((c, i) => (
+                          <div key={i} className="flex items-center gap-2 text-xs">
+                            <span className={`shrink-0 text-base ${c.passed ? "text-green-500" : "text-red-500"}`}>
+                              {c.passed ? "\u2713" : "\u2717"}
+                            </span>
+                            <span className="font-mono">
+                              {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""}{" "}
+                              {c.operator} {String(c.value)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Signal Log */}
+                {algo.signals.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-muted-foreground mb-2">Signal Log</p>
+                    <div className="rounded-md border max-h-64 overflow-y-auto">
+                      <div className="p-3 space-y-1.5">
+                        {[...algo.signals].reverse().map((sig, i) => (
+                          <div key={i} className="flex items-start gap-2 text-xs">
+                            <span className="text-muted-foreground font-mono shrink-0 w-16">
+                              {new Date(sig.time).toLocaleTimeString()}
+                            </span>
+                            <Badge
+                              variant={
+                                sig.action === "buy" || sig.action === "sell"
+                                  ? "default"
+                                  : sig.action === "close" || sig.action === "closed"
+                                    ? "secondary"
+                                    : sig.action === "error"
+                                      ? "destructive"
+                                      : sig.action === "flip"
+                                        ? "default"
+                                        : sig.action === "warn"
+                                          ? "outline"
+                                          : "outline"
+                              }
+                              className={`text-[10px] shrink-0 w-14 justify-center ${
+                                sig.action === "warn" ? "border-yellow-500/50 text-yellow-500" :
+                                sig.action === "flip" ? "bg-blue-600" : ""
+                              }`}
+                            >
+                              {sig.action.toUpperCase()}
+                            </Badge>
+                            <span className="text-muted-foreground font-mono break-all">
+                              {sig.detail.split(" | ").map((part, pi) => {
+                                const hasPass = part.endsWith("+");
+                                const hasFail = part.endsWith("-");
+                                return (
+                                  <span key={pi}>
+                                    {pi > 0 && <span className="text-border mx-0.5">|</span>}
+                                    <span className={hasPass ? "text-green-500" : hasFail ? "text-red-500" : ""}>
+                                      {part}
+                                    </span>
+                                  </span>
+                                );
+                              })}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        );
+      })()}
 
       {/* Indicators */}
       {indicators && Object.keys(indicators).length > 0 && (

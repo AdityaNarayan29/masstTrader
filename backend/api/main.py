@@ -103,6 +103,7 @@ algo_state = {
     "exit_conditions": [],           # conditions with pass/fail status
     "last_check": None,              # ISO timestamp of last evaluation
     "strategy_rules": None,          # the rule being used
+    "active_rule_index": 0,          # index of the rule being executed
     # TradeState — structured trade lifecycle tracking
     "trade_state": None,             # dict when in position, None otherwise
 }
@@ -463,6 +464,10 @@ def list_strategies_endpoint():
             "exit_conditions": first_rule.get("exit_conditions", []),
             "stop_loss_pips": first_rule.get("stop_loss_pips"),
             "take_profit_pips": first_rule.get("take_profit_pips"),
+            "stop_loss_atr_multiplier": first_rule.get("stop_loss_atr_multiplier"),
+            "take_profit_atr_multiplier": first_rule.get("take_profit_atr_multiplier"),
+            "min_bars_in_trade": first_rule.get("min_bars_in_trade"),
+            "additional_timeframes": first_rule.get("additional_timeframes"),
             "rule_count": len(rules),
             "created_at": s["created_at"],
             "updated_at": s["updated_at"],
@@ -828,6 +833,33 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
         check_count = 0
         last_candle_time = None
         bars_in_trade = 0
+        last_cond_state = None  # for signal dedup
+
+        # Check for existing open positions on this symbol (prevents stacking)
+        try:
+            existing_positions = connector.get_positions()
+            for pos in existing_positions:
+                if pos["symbol"] == symbol:
+                    algo_state["in_position"] = True
+                    algo_state["position_ticket"] = pos["ticket"]
+                    _add_signal("info", f"Found existing position #{pos['ticket']} for {symbol} — resuming tracking")
+                    # Build a partial trade_state from MT5 position
+                    algo_state["trade_state"] = sanitize_for_json({
+                        "ticket": pos["ticket"],
+                        "entry_price": pos["open_price"],
+                        "sl_price": pos.get("stop_loss") or None,
+                        "tp_price": pos.get("take_profit") or None,
+                        "direction": pos.get("type", direction),
+                        "volume": pos.get("volume", volume),
+                        "entry_time": pos.get("open_time", ""),
+                        "bars_since_entry": 0,
+                        "atr_at_entry": None,
+                        "sl_atr_mult": sl_atr_mult,
+                        "tp_atr_mult": tp_atr_mult,
+                    })
+                    break
+        except Exception:
+            pass
 
         while not algo_stop_event.is_set():
             try:
@@ -919,11 +951,16 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                     })
                 algo_state["exit_conditions"] = exit_results
 
-                # Log periodic check with per-condition indicator values
+                # Log when conditions change (deduped) or every ~2min as heartbeat
                 entry_pass = sum(1 for r in entry_results if r["passed"])
                 entry_total = len(entry_results)
                 bid = price_info["bid"]
-                if check_count % 6 == 1:  # every ~30s
+                current_cond_state = tuple(r["passed"] for r in entry_results) + tuple(r["passed"] for r in exit_results)
+                cond_changed = current_cond_state != last_cond_state
+                is_heartbeat = check_count % 24 == 1  # every ~2min
+                last_cond_state = current_cond_state
+
+                if cond_changed or is_heartbeat:
                     pos_status = "IN_POSITION" if algo_state["in_position"] else "WATCHING"
                     # Build per-condition detail string
                     cond_details = []
@@ -938,13 +975,14 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                             val = f"{val:.2f}"
                         cond_details.append(f"{ind}.{param}={val}{mark}")
                     detail_str = " | ".join(cond_details) if cond_details else ""
+                    tag = "check" if is_heartbeat and not cond_changed else "flip"
                     if algo_state["in_position"]:
                         exit_pass = sum(1 for r in exit_results if r["passed"])
                         exit_total = len(exit_results)
                         bars_str = f" | bars={bars_in_trade}/{min_bars}" if min_bars > 0 else ""
-                        _add_signal("check", f"{pos_status} | bid={bid:.5f} | {detail_str} | exit {exit_pass}/{exit_total}{bars_str}")
+                        _add_signal(tag, f"{pos_status} | bid={bid:.5f} | {detail_str} | exit {exit_pass}/{exit_total}{bars_str}")
                     else:
-                        _add_signal("check", f"{pos_status} | bid={bid:.5f} | {detail_str} | entry {entry_pass}/{entry_total}")
+                        _add_signal(tag, f"{pos_status} | bid={bid:.5f} | {detail_str} | entry {entry_pass}/{entry_total}")
 
                 if not algo_state["in_position"]:
                     # Check if ALL entry conditions are met
@@ -1012,6 +1050,8 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                                     "entry_time": datetime.now(timezone.utc).isoformat(),
                                     "bars_since_entry": 0,
                                     "atr_at_entry": atr_val if atr_val > 0 else None,
+                                    "sl_atr_mult": sl_atr_mult,
+                                    "tp_atr_mult": tp_atr_mult,
                                 })
                                 sl_str = f" SL={sl_price:.5f}" if sl_price else ""
                                 tp_str = f" TP={tp_price:.5f}" if tp_price else ""
@@ -1147,6 +1187,7 @@ def algo_status():
         "exit_conditions": algo_state["exit_conditions"],
         "last_check": algo_state["last_check"],
         "trade_state": algo_state.get("trade_state"),
+        "active_rule_index": algo_state.get("active_rule_index", 0),
     }
     return JSONResponse(content=sanitize_for_json(data))
 
