@@ -141,20 +141,36 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                 <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
               </span>
             </div>
-            <div className="flex items-baseline justify-between gap-2">
-              <div>
-                <span className="text-[10px] text-muted-foreground">BID </span>
-                <span className="text-sm font-mono font-semibold text-green-500">
-                  {ticker.price.bid.toFixed(5)}
-                </span>
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] text-muted-foreground">ASK </span>
-                <span className="text-sm font-mono font-semibold text-red-500">
-                  {ticker.price.ask.toFixed(5)}
-                </span>
-              </div>
-            </div>
+            {(() => {
+              const big = ticker.price!.symbol.includes("BTC") || ticker.price!.symbol.includes("XAU") || ticker.price!.bid > 100;
+              const dec = big ? 2 : 5;
+              const spd = big
+                ? (ticker.price!.ask - ticker.price!.bid).toFixed(2)
+                : ((ticker.price!.ask - ticker.price!.bid) * 100000).toFixed(1);
+              const unit = big ? "USD" : "pts";
+              return (
+                <>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div>
+                      <span className="text-[10px] text-muted-foreground">BID </span>
+                      <span className="text-sm font-mono font-semibold text-green-500">
+                        {ticker.price!.bid.toFixed(dec)}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-muted-foreground">ASK </span>
+                      <span className="text-sm font-mono font-semibold text-red-500">
+                        {ticker.price!.ask.toFixed(dec)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <span className="text-[10px] text-muted-foreground">Spread: </span>
+                    <span className="text-[10px] font-mono font-medium text-foreground">{spd} {unit}</span>
+                  </div>
+                </>
+              );
+            })()}
             {ticker.equity != null && (
               <div className="flex items-center justify-between text-[10px]">
                 <span className="text-muted-foreground">
