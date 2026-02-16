@@ -1,5 +1,8 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
+import { isDemoMode } from "@/lib/demo";
+import { tickPrice, demoAccount } from "@/lib/demo/demo-data";
+import { demoAlgo } from "@/lib/demo/demo-algo";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
@@ -88,6 +91,7 @@ export type StreamStatus = "disconnected" | "connecting" | "connected" | "error"
 
 export function useLiveStream(symbol: string, timeframe: string = "1m") {
   const esRef = useRef<EventSource | null>(null);
+  const demoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [status, setStatus] = useState<StreamStatus>("disconnected");
   const [price, setPrice] = useState<PriceData | null>(null);
   const [positions, setPositions] = useState<PositionData[]>([]);
@@ -101,22 +105,51 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
     paramsRef.current = { symbol, timeframe };
   }, [symbol, timeframe]);
 
+  const cleanupDemo = useCallback(() => {
+    if (demoIntervalRef.current) {
+      clearInterval(demoIntervalRef.current);
+      demoIntervalRef.current = null;
+    }
+  }, []);
+
   const disconnect = useCallback(() => {
     if (esRef.current) {
       esRef.current.close();
       esRef.current = null;
     }
+    cleanupDemo();
     setStatus("disconnected");
-  }, []);
+  }, [cleanupDemo]);
 
   const connect = useCallback(() => {
     if (esRef.current) {
       esRef.current.close();
       esRef.current = null;
     }
+    cleanupDemo();
 
     setStatus("connecting");
     setError("");
+
+    // Demo mode: simulate SSE with setInterval
+    if (isDemoMode()) {
+      setStatus("connected");
+      demoIntervalRef.current = setInterval(() => {
+        const { symbol: sym } = paramsRef.current;
+        const p = tickPrice(sym);
+        setPrice({
+          symbol: p.symbol, bid: p.bid, ask: p.ask,
+          last: p.bid, volume: Math.floor(Math.random() * 1000),
+          time: new Date().toISOString(),
+        });
+        setAccount(demoAccount() as AccountData);
+        setPositions([]);
+        if (demoAlgo.isRunning()) {
+          setAlgo(demoAlgo.status() as AlgoStatusData);
+        }
+      }, 500);
+      return;
+    }
 
     const { symbol: sym, timeframe: tf } = paramsRef.current;
     const params = new URLSearchParams({ symbol: sym, timeframe: tf });
@@ -169,7 +202,7 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
         setStatus("connecting");
       }
     };
-  }, []);
+  }, [cleanupDemo]);
 
   const changeSymbol = useCallback(
     (newSymbol: string, newTimeframe?: string) => {
@@ -177,7 +210,7 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
         symbol: newSymbol,
         timeframe: newTimeframe || paramsRef.current.timeframe,
       };
-      if (esRef.current) {
+      if (esRef.current || demoIntervalRef.current) {
         connect();
       }
     },
@@ -188,8 +221,9 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
   useEffect(() => {
     return () => {
       esRef.current?.close();
+      cleanupDemo();
     };
-  }, []);
+  }, [cleanupDemo]);
 
   return {
     status,

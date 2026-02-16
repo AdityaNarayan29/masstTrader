@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import { api } from "@/lib/api";
 import { useTicker } from "@/hooks/use-ticker";
+import { useDemoMode } from "@/lib/demo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -67,11 +68,16 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = (resolvedTheme ?? "dark") === "dark";
+  const isDemo = useDemoMode();
   const [status, setStatus] = useState<{ mt5: boolean; data: boolean; strategy: boolean } | null>(null);
   const [algoSymbol, setAlgoSymbol] = useState<string | null>(null);
   const ticker = useTicker(algoSymbol || "EURUSDm");
 
   useEffect(() => {
+    if (isDemo) {
+      setStatus({ mt5: true, data: true, strategy: true });
+      return;
+    }
     const poll = () =>
       api.health()
         .then((h) => setStatus({ mt5: h.mt5_connected, data: h.has_data, strategy: h.has_strategy }))
@@ -79,7 +85,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     poll();
     const interval = setInterval(poll, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isDemo]);
 
   // Switch ticker to algo symbol when algo is running
   useEffect(() => {
@@ -205,6 +211,14 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         )}
 
         <Separator />
+
+        {isDemo && (
+          <div className="px-4 pt-3 pb-1">
+            <Badge variant="outline" className="w-full justify-center text-[10px] border-amber-500/50 text-amber-500 bg-amber-500/5">
+              DEMO MODE
+            </Badge>
+          </div>
+        )}
 
         <div className="p-4 space-y-2">
           {status === null ? (

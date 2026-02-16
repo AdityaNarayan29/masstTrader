@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
+import { useDemoMode, setDemoMode } from "@/lib/demo";
+import { demoAccount } from "@/lib/demo/demo-data";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -55,6 +57,8 @@ interface Trade {
 }
 
 export default function ConnectionPage() {
+  const isDemo = useDemoMode();
+
   // Login form state
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
@@ -81,6 +85,12 @@ export default function ConnectionPage() {
 
   // Sync with backend on mount — if MT5 is already connected, show it
   useEffect(() => {
+    if (isDemo) {
+      setConnected(true);
+      setDataLoaded(true);
+      setAccount(demoAccount() as AccountInfo);
+      return;
+    }
     api.health().then((h) => {
       if (h.mt5_connected) {
         setConnected(true);
@@ -89,7 +99,7 @@ export default function ConnectionPage() {
       }
       if (h.has_env_creds) setHasEnvCreds(true);
     }).catch(() => {});
-  }, []);
+  }, [isDemo]);
 
   const handleConnect = async () => {
     setLoading(true);
@@ -627,27 +637,56 @@ export default function ConnectionPage() {
       )}
 
       {/* Demo Mode Card */}
-      <Card className="border-dashed">
+      <Card className={`border-dashed ${isDemo ? "border-amber-500/50 bg-amber-500/5" : ""}`}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            Demo Mode
-            <Badge variant="secondary">No MT5 Required</Badge>
+            Frontend Demo Mode
+            <Badge variant={isDemo ? "default" : "secondary"}>
+              {isDemo ? "Active" : "No Backend Required"}
+            </Badge>
           </CardTitle>
           <CardDescription>
-            No MetaTrader 5 terminal? Load synthetic demo data to explore all
-            platform features including strategy building, backtesting, and
-            analysis.
+            {isDemo
+              ? "All data is simulated locally in your browser. AI features work fully — demo mode reduces server costs by running everything client-side. Disable to connect to the real backend."
+              : "Enable demo mode to explore all platform features with simulated data — no MT5 or server needed. AI features work fully; demo mode just reduces server costs."}
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Button
-            variant="secondary"
-            onClick={handleLoadDemo}
-            disabled={loading}
-          >
-            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {loading ? "Loading..." : "Load Demo Data"}
-          </Button>
+        <CardContent className="flex gap-3">
+          {isDemo ? (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDemoMode(false);
+                setConnected(false);
+                setAccount(null);
+                setDataLoaded(false);
+              }}
+            >
+              Disable Demo Mode
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setDemoMode(true);
+                  setConnected(true);
+                  setAccount(demoAccount() as AccountInfo);
+                  setDataLoaded(true);
+                }}
+              >
+                Enable Demo Mode
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleLoadDemo}
+                disabled={loading}
+              >
+                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                {loading ? "Loading..." : "Load Demo Data (Backend)"}
+              </Button>
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

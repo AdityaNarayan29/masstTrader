@@ -1,5 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { isDemoMode } from "@/lib/demo";
+import { tickPrice, demoAccount } from "@/lib/demo/demo-data";
+import { demoAlgo } from "@/lib/demo/demo-algo";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
@@ -29,6 +32,32 @@ export function useTicker(symbol: string) {
 
   useEffect(() => {
     if (!symbol) return;
+
+    // Demo mode: simulate ticker with setInterval
+    if (isDemoMode()) {
+      setConnected(true);
+      const interval = setInterval(() => {
+        const p = tickPrice(symbol);
+        setPrice({ symbol: p.symbol, bid: p.bid, ask: p.ask });
+        const acc = demoAccount();
+        setBalance(acc.balance);
+        setEquity(acc.equity);
+        setProfit(acc.profit);
+        if (demoAlgo.isRunning()) {
+          const s = demoAlgo.status();
+          setAlgo({
+            running: s.running,
+            symbol: s.symbol,
+            strategy_name: s.strategy_name,
+            trades_placed: s.trades_placed,
+            in_position: s.in_position,
+          });
+        } else {
+          setAlgo(null);
+        }
+      }, 500);
+      return () => { clearInterval(interval); setConnected(false); };
+    }
 
     const params = new URLSearchParams({ symbol });
     if (API_KEY) params.set("api_key", API_KEY);

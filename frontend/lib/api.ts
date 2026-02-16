@@ -1,7 +1,14 @@
+import { isDemoMode } from "./demo";
+import { handleDemoRequest } from "./demo/demo-handlers";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
 async function request<T>(path: string, options?: RequestInit, timeoutMs = 30000): Promise<T> {
+  if (isDemoMode()) {
+    return handleDemoRequest(path, options) as Promise<T>;
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
