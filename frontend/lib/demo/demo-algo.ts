@@ -344,6 +344,7 @@ export const demoAlgo = {
           ? Math.round((entryPrice + tpDist) * Math.pow(10, dec)) / Math.pow(10, dec)
           : Math.round((entryPrice - tpDist) * Math.pow(10, dec)) / Math.pow(10, dec);
         state.barsHeld = 0;
+        state.entryTick = state.tickCount;
         state.phase = "in_position";
         state.exitAt = state.tickCount + 15 + Math.floor(Math.random() * 20);
 

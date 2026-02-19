@@ -81,7 +81,11 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     const poll = () =>
       api.health()
         .then((h) => setStatus({ mt5: h.mt5_connected, data: h.has_data, strategy: h.has_strategy }))
-        .catch(() => {});
+        .catch(() => {
+          // api.ts auto-enables demo mode on network errors,
+          // but if we're still not in demo mode, show offline status
+          setStatus({ mt5: false, data: false, strategy: false });
+        });
     poll();
     const interval = setInterval(poll, 5000);
     return () => clearInterval(interval);

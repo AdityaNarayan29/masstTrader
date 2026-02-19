@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { useDemoMode, setDemoMode } from "@/lib/demo";
+import { useDemoMode, setDemoMode, isDemoMode } from "@/lib/demo";
 import { demoAccount } from "@/lib/demo/demo-data";
 import { Button } from "@/components/ui/button";
 import {
@@ -89,9 +89,17 @@ export default function ConnectionPage() {
       setConnected(true);
       setDataLoaded(true);
       setAccount(demoAccount() as AccountInfo);
+      setError("");
       return;
     }
     api.health().then((h) => {
+      // api.ts auto-enables demo on network errors, so check if we switched
+      if (isDemoMode()) {
+        setConnected(true);
+        setDataLoaded(true);
+        setAccount(demoAccount() as AccountInfo);
+        return;
+      }
       if (h.mt5_connected) {
         setConnected(true);
         if (h.has_data) setDataLoaded(true);

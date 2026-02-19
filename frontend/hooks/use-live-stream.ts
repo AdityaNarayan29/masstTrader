@@ -195,9 +195,30 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
 
     es.onerror = () => {
       if (es.readyState === EventSource.CLOSED) {
-        setError("SSE connection closed — using HTTP polling instead.");
-        setStatus("error");
+        es.close();
         esRef.current = null;
+        // If SSE fails, fall back to demo simulation
+        if (isDemoMode() || !API_BASE) {
+          setError("");
+          setStatus("connected");
+          demoIntervalRef.current = setInterval(() => {
+            const { symbol: s } = paramsRef.current;
+            const p = tickPrice(s);
+            setPrice({
+              symbol: p.symbol, bid: p.bid, ask: p.ask,
+              last: p.bid, volume: Math.floor(Math.random() * 1000),
+              time: new Date().toISOString(),
+            });
+            setAccount(demoAccount() as AccountData);
+            setPositions([]);
+            if (demoAlgo.isRunning()) {
+              setAlgo(demoAlgo.status() as AlgoStatusData);
+            }
+          }, 500);
+        } else {
+          setError("SSE connection closed — using HTTP polling instead.");
+          setStatus("error");
+        }
       } else if (es.readyState === EventSource.CONNECTING) {
         setStatus("connecting");
       }
@@ -216,6 +237,13 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
     },
     [connect]
   );
+
+  // Auto-connect in demo mode so streaming works without manual start
+  useEffect(() => {
+    if (isDemoMode() && !demoIntervalRef.current && !esRef.current) {
+      connect();
+    }
+  }, [connect]);
 
   // Cleanup on unmount
   useEffect(() => {

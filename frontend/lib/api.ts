@@ -1,10 +1,11 @@
-import { isDemoMode } from "./demo";
+import { isDemoMode, setDemoMode } from "./demo";
 import { handleDemoRequest } from "./demo/demo-handlers";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
 async function request<T>(path: string, options?: RequestInit, timeoutMs = 30000): Promise<T> {
+  // Demo mode: serve everything locally
   if (isDemoMode()) {
     return handleDemoRequest(path, options) as Promise<T>;
   }
@@ -25,11 +26,13 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = 30000
     }
     return res.json();
   } catch (e: unknown) {
-    if (e instanceof DOMException && e.name === "AbortError") {
-      throw new Error("Request timed out — check if the backend is reachable");
-    }
-    if (e instanceof TypeError && (e.message.includes("fetch") || e.message.includes("Failed"))) {
-      throw new Error("Cannot reach backend — check if the server is running and the port is open");
+    // Auto-fallback to demo mode when backend is unreachable
+    const isNetworkError =
+      (e instanceof DOMException && e.name === "AbortError") ||
+      (e instanceof TypeError && (e.message.includes("fetch") || e.message.includes("Failed")));
+    if (isNetworkError) {
+      setDemoMode(true);
+      return handleDemoRequest(path, options) as Promise<T>;
     }
     throw e;
   } finally {
