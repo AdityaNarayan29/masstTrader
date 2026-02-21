@@ -90,6 +90,16 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     return () => clearInterval(interval);
   }, [isDemo]);
 
+  // On mount: immediately check algo status so ticker starts with the right symbol
+  useEffect(() => {
+    if (isDemo) return;
+    api.algo.status()
+      .then((s) => {
+        if (s.running && s.symbol) setAlgoSymbol(s.symbol);
+      })
+      .catch(() => {});
+  }, [isDemo]);
+
   // Switch ticker to algo symbol when algo is running
   useEffect(() => {
     if (ticker.algo?.running && ticker.algo.symbol) {
