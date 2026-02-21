@@ -25,10 +25,10 @@ MasstTrader connects to MetaTrader 5, lets you describe trading strategies in pl
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          BROWSER (Client)                           │
 │                                                                     │
-│  Next.js 16 + TypeScript + Tailwind v4 + shadcn/ui                 │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
-│  │ Strategy │ │   Live   │ │ Backtest │ │ Analyzer │ │  Tutor   │ │
-│  │ Builder  │ │Dashboard │ │  Engine  │ │   (AI)   │ │  (AI)    │ │
+│  Next.js 16 + TypeScript + Tailwind v4 + shadcn/ui                  │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐   │
+│  │ Strategy │ │   Live   │ │ Backtest │ │ Analyzer │ │  Tutor   │   │
+│  │ Builder  │ │Dashboard │ │  Engine  │ │   (AI)   │ │  (AI)    │  │
 │  └────┬─────┘ └───┬──────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ │
 │       │       SSE ↓Stream       │            │            │        │
 │       │  ┌─────────────┐        │            │            │        │
