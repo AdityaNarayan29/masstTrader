@@ -352,7 +352,8 @@ export default function AlgoPage() {
       const stratId = strategyId !== "__current__" ? strategyId : undefined;
       const algoSymbol = selectedStrategy?.symbol || symbol;
       const algoTf = selectedStrategy?.timeframe ? toUiTimeframe(selectedStrategy.timeframe) : timeframe;
-      if (!streamStarted) await startStream(algoSymbol);
+      setSymbol(algoSymbol);
+      await startStream(algoSymbol);
       await api.algo.start(algoSymbol, algoTf, volume, stratId);
       const status = await api.algo.status();
       setPolledAlgo(status);
