@@ -14,7 +14,12 @@ def add_all_indicators(df: pd.DataFrame, config: dict = None) -> pd.DataFrame:
     for indicator_name, params in config.items():
         func = INDICATOR_REGISTRY.get(indicator_name)
         if func:
-            result = func(result, **params)
+            # Support list of param dicts for multi-period indicators (e.g., EMA)
+            if isinstance(params, list):
+                for p in params:
+                    result = func(result, **p)
+            else:
+                result = func(result, **params)
 
     return result
 
@@ -41,6 +46,7 @@ def add_macd(
     df["MACD_line"] = macd.macd()
     df["MACD_signal"] = macd.macd_signal()
     df["MACD_histogram"] = macd.macd_diff()
+    df["MACD_histogram_prev"] = df["MACD_histogram"].shift(1)
     return df
 
 
@@ -140,9 +146,20 @@ INDICATOR_REGISTRY = {
 DEFAULT_CONFIG = {
     "RSI": {"period": 14},
     "MACD": {"fast": 12, "slow": 26, "signal": 9},
-    "EMA": {"period": 50},
+    "EMA": [
+        {"period": 8},
+        {"period": 9},
+        {"period": 14},
+        {"period": 21},
+        {"period": 34},
+        {"period": 50},
+        {"period": 100},
+    ],
+    "SMA": {"period": 20},
     "Bollinger": {"period": 20, "std": 2},
     "ATR": {"period": 14},
+    "Stochastic": {"period": 14, "smooth": 3},
+    "ADX": {"period": 14},
     "Volume": {},
 }
 

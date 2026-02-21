@@ -23,7 +23,7 @@ STRATEGIES = [
         "rules": [
             {
                 "name": "EMA Cross + MACD Momentum",
-                "timeframe": "M1",
+                "timeframe": "1m",
                 "direction": "buy",
                 "description": "EMA 9/21 crossover confirmed by MACD momentum and RSI filter",
                 "entry_conditions": [
@@ -55,7 +55,7 @@ STRATEGIES = [
         "rules": [
             {
                 "name": "BB Mean Reversion + RSI",
-                "timeframe": "M1",
+                "timeframe": "1m",
                 "direction": "buy",
                 "description": "Buy at lower BB with RSI(4) oversold recovery",
                 "entry_conditions": [
@@ -85,7 +85,7 @@ STRATEGIES = [
         "rules": [
             {
                 "name": "BB + RSI + ADX Triple Filter",
-                "timeframe": "M1",
+                "timeframe": "1m",
                 "direction": "buy",
                 "description": "Mean reversion with ADX range filter to avoid trending markets",
                 "entry_conditions": [
@@ -116,7 +116,7 @@ STRATEGIES = [
         "rules": [
             {
                 "name": "Stochastic + EMA Trend Scalper",
-                "timeframe": "M1",
+                "timeframe": "1m",
                 "direction": "buy",
                 "description": "Pullback entry in uptrend using Stochastic oversold crossover",
                 "entry_conditions": [
@@ -147,12 +147,12 @@ STRATEGIES = [
         "rules": [
             {
                 "name": "ADX + DI Trend Strength",
-                "timeframe": "M1",
+                "timeframe": "1m",
                 "direction": "buy",
                 "description": "Trend-following with ADX strength and DI directional confirmation",
                 "entry_conditions": [
                     {"indicator": "ADX", "parameter": "value", "operator": ">", "value": 20, "description": "ADX above 20 (trend has strength)"},
-                    {"indicator": "ADX", "parameter": "DI+", "operator": ">", "value": "ADX_DI-", "description": "DI+ above DI- (bullish direction)"},
+                    {"indicator": "ADX", "parameter": "DI_plus", "operator": ">", "value": "DI_minus", "description": "DI+ above DI- (bullish direction)"},
                     {"indicator": "close", "parameter": "value", "operator": ">", "value": "EMA_14", "description": "Price above EMA 14 (bullish bias)"}
                 ],
                 "exit_conditions": [
@@ -178,7 +178,7 @@ STRATEGIES = [
         "rules": [
             {
                 "name": "Triple EMA Ribbon",
-                "timeframe": "M1",
+                "timeframe": "1m",
                 "direction": "buy",
                 "description": "Bullish EMA stack (8>21>34) with MACD momentum confirmation",
                 "entry_conditions": [
@@ -209,7 +209,7 @@ STRATEGIES = [
         "rules": [
             {
                 "name": "RSI Divergence Scalper",
-                "timeframe": "M1",
+                "timeframe": "1m",
                 "direction": "buy",
                 "description": "Counter-trend entry on RSI oversold recovery with MACD divergence",
                 "entry_conditions": [
@@ -239,7 +239,7 @@ STRATEGIES = [
         "rules": [
             {
                 "name": "BB Squeeze Breakout",
-                "timeframe": "M1",
+                "timeframe": "1m",
                 "direction": "buy",
                 "description": "Breakout above upper BB with trend and momentum confirmation",
                 "entry_conditions": [

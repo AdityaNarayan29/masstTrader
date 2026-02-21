@@ -106,10 +106,12 @@ def _resolve_column(indicator: str, parameter: str) -> str:
     if indicator in ("open", "high", "low", "close", "volume"):
         return indicator
 
-    # Try indicator as a direct column name (e.g., "EMA_50")
+    # Try indicator as a direct column name (e.g., "EMA_50", "DI_minus", "MACD_histogram_prev")
     if "_" in indicator:
         return indicator
 
+    # Fallback: combine indicator and parameter (e.g., "ADX" + "DI_plus" -> "ADX_DI_plus")
+    # but prefer direct column names first
     return f"{indicator}_{parameter}"
 
 
