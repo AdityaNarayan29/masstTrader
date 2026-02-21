@@ -279,13 +279,23 @@ class MT5Connector:
         tick = mt5.symbol_info_tick(symbol)
         if tick is None:
             raise RuntimeError(f"Failed to get tick for {symbol}: {mt5.last_error()}")
+
+        # Detect if market is closed by checking tick staleness and trade mode
+        tick_time = datetime.fromtimestamp(tick.time)
+        age_seconds = (datetime.now() - tick_time).total_seconds()
+        info = mt5.symbol_info(symbol)
+        # trade_mode: 0=disabled, 4=full trading
+        trade_allowed = info.trade_mode == 4 if info else True
+        market_open = trade_allowed and age_seconds < 120  # stale > 2min = closed
+
         return {
             "symbol": symbol,
             "bid": tick.bid,
             "ask": tick.ask,
             "last": tick.last,
             "volume": tick.volume,
-            "time": datetime.fromtimestamp(tick.time).strftime("%Y-%m-%d %H:%M:%S"),
+            "time": tick_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "market_open": market_open,
         }
 
     def get_symbols(self, group: str = None) -> list[str]:

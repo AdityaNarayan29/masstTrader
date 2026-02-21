@@ -11,6 +11,7 @@ interface TickerPrice {
   symbol: string;
   bid: number;
   ask: number;
+  market_open?: boolean;
 }
 
 interface AlgoTicker {
@@ -69,7 +70,7 @@ export function useTicker(symbol: string) {
 
     es.addEventListener("price", (e: MessageEvent) => {
       const data = JSON.parse(e.data);
-      setPrice({ symbol: data.symbol, bid: data.bid, ask: data.ask });
+      setPrice({ symbol: data.symbol, bid: data.bid, ask: data.ask, market_open: data.market_open });
     });
 
     es.addEventListener("account", (e: MessageEvent) => {

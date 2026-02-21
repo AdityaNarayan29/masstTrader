@@ -75,15 +75,14 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
   useEffect(() => {
     if (isDemo) {
-      setStatus({ mt5: true, data: true, strategy: true });
+      // Demo mode: show simulated status (user explicitly enabled demo)
+      setStatus({ mt5: false, data: false, strategy: false });
       return;
     }
     const poll = () =>
       api.health()
         .then((h) => setStatus({ mt5: h.mt5_connected, data: h.has_data, strategy: h.has_strategy }))
         .catch(() => {
-          // api.ts auto-enables demo mode on network errors,
-          // but if we're still not in demo mode, show offline status
           setStatus({ mt5: false, data: false, strategy: false });
         });
     poll();
@@ -146,10 +145,16 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {ticker.price.symbol}
               </span>
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
-              </span>
+              {ticker.price.market_open === false ? (
+                <Badge variant="outline" className="text-[9px] h-4 border-amber-500/50 text-amber-500">
+                  CLOSED
+                </Badge>
+              ) : (
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+                </span>
+              )}
             </div>
             {(() => {
               const big = ticker.price!.symbol.includes("BTC") || ticker.price!.symbol.includes("XAU") || ticker.price!.bid > 100;
@@ -218,8 +223,8 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
         {isDemo && (
           <div className="px-4 pt-3 pb-1">
-            <Badge variant="outline" className="w-full justify-center text-[10px] border-amber-500/50 text-amber-500 bg-amber-500/5">
-              DEMO MODE
+            <Badge variant="destructive" className="w-full justify-center text-[11px] font-bold animate-pulse">
+              DEMO MODE — NOT REAL
             </Badge>
           </div>
         )}

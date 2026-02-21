@@ -103,10 +103,10 @@ export default function ConnectionPage() {
       if (h.mt5_connected) {
         setConnected(true);
         if (h.has_data) setDataLoaded(true);
-        api.mt5.account().then(setAccount).catch(() => {});
+        api.mt5.account().then(setAccount).catch((e: Error) => console.error(e.message));
       }
       if (h.has_env_creds) setHasEnvCreds(true);
-    }).catch(() => {});
+    }).catch((e: Error) => console.error(e.message));
   }, [isDemo]);
 
   const handleConnect = async () => {

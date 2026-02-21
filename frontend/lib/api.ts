@@ -26,13 +26,16 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = 30000
     }
     return res.json();
   } catch (e: unknown) {
-    // Auto-fallback to demo mode when backend is unreachable
+    // If user explicitly enabled demo mode, use demo handlers
+    if (isDemoMode()) {
+      return handleDemoRequest(path, options) as Promise<T>;
+    }
+    // Never silently fall back to demo — surface the real error
     const isNetworkError =
       (e instanceof DOMException && e.name === "AbortError") ||
       (e instanceof TypeError && (e.message.includes("fetch") || e.message.includes("Failed")));
     if (isNetworkError) {
-      setDemoMode(true);
-      return handleDemoRequest(path, options) as Promise<T>;
+      throw new Error("Backend unreachable — check your server connection");
     }
     throw e;
   } finally {

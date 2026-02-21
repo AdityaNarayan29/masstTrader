@@ -874,17 +874,12 @@ def _determine_exit_reason(ticket, symbol, trade_state):
                 if trade_state:
                     sl = trade_state.get("sl_price")
                     tp = trade_state.get("tp_price")
-                    dir_ = trade_state.get("direction", "buy")
-                    if sl is not None:
-                        if dir_ == "buy" and exit_price <= sl * 1.0001:
-                            return "stop_loss"
-                        if dir_ == "sell" and exit_price >= sl * 0.9999:
-                            return "stop_loss"
-                    if tp is not None:
-                        if dir_ == "buy" and exit_price >= tp * 0.9999:
-                            return "take_profit"
-                        if dir_ == "sell" and exit_price <= tp * 1.0001:
-                            return "take_profit"
+                    # Absolute tolerance: scales with price magnitude
+                    tol = max(abs(exit_price) * 1e-5, 1e-5)
+                    if sl is not None and abs(exit_price - sl) <= tol:
+                        return "stop_loss"
+                    if tp is not None and abs(exit_price - tp) <= tol:
+                        return "take_profit"
                 return "external"
     except Exception:
         pass
@@ -924,6 +919,8 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
             _add_signal("error", "Strategy has no rules")
             return
 
+        if len(rules) > 1:
+            _add_signal("info", f"Strategy has {len(rules)} rules — using first rule (multi-rule not yet supported)")
         rule = rules[0]
         entry_conditions = rule.get("entry_conditions", [])
         exit_conditions = rule.get("exit_conditions", [])
@@ -1186,7 +1183,7 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                                 algo_state["in_position"] = True
                                 algo_state["position_ticket"] = result.get("order_id")
                                 algo_state["trades_placed"] += 1
-                                bars_in_trade = 0
+                                bars_in_trade = 1  # entry candle counts as bar 1
                                 entry_time_iso = datetime.now(timezone.utc).isoformat()
                                 # Build TradeState
                                 algo_state["trade_state"] = sanitize_for_json({
@@ -1297,7 +1294,14 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
     except Exception as e:
         _add_signal("error", f"Algo crashed: {str(e)}")
     finally:
-        # If algo stopped while in position, mark the open DB trade
+        # If algo stopped while in position, close MT5 position and mark DB trade
+        if algo_state.get("in_position") and algo_state.get("position_ticket"):
+            ticket = algo_state["position_ticket"]
+            try:
+                _add_signal("info", f"Closing open position #{ticket} (algo stopped)")
+                connector.close_position(ticket)
+            except Exception as e:
+                _add_signal("warn", f"Failed to close position #{ticket}: {e}")
         if algo_state.get("current_algo_trade_id"):
             try:
                 from datetime import datetime, timezone as tz
@@ -1309,6 +1313,9 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
             except Exception:
                 pass
             algo_state["current_algo_trade_id"] = None
+        algo_state["in_position"] = False
+        algo_state["position_ticket"] = None
+        algo_state["trade_state"] = None
         algo_state["running"] = False
 
 
@@ -1433,7 +1440,7 @@ def health():
 # LIVE STREAMING (WebSocket)
 # ──────────────────────────────────────
 
-mt5_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="mt5ws")
+mt5_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mt5ws")  # MT5 is single-threaded, serialize all calls
 
 
 @app.websocket("/api/ws/live")
@@ -1621,6 +1628,7 @@ async def _sse_live_generator(request: Request, symbol: str, timeframe: str):
                 "symbol": algo_state["symbol"],
                 "timeframe": algo_state["timeframe"],
                 "strategy_name": algo_state["strategy_name"],
+                "strategy_id": algo_state.get("strategy_id"),
                 "volume": algo_state["volume"],
                 "in_position": algo_state["in_position"],
                 "position_ticket": algo_state["position_ticket"],
@@ -1631,6 +1639,8 @@ async def _sse_live_generator(request: Request, symbol: str, timeframe: str):
                 "entry_conditions": algo_state["entry_conditions"],
                 "exit_conditions": algo_state["exit_conditions"],
                 "last_check": algo_state["last_check"],
+                "trade_state": algo_state.get("trade_state"),
+                "active_rule_index": algo_state.get("active_rule_index", 0),
             }
             yield _sse_event("algo", algo_data)
         except Exception:

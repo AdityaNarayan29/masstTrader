@@ -101,7 +101,7 @@ export default function BacktestPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    api.strategies.list().then(setStrategies).catch(() => {});
+    api.strategies.list().then(setStrategies).catch((e) => console.error("Failed to load strategies:", e.message));
   }, []);
   const [stats, setStats] = useState<BacktestStats | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);

@@ -44,7 +44,7 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
         <Sidebar />
       </div>
 
-      <main className="flex-1 overflow-y-auto p-4 pt-18 md:p-6 md:pt-6">{children}</main>
+      <main className="flex-1 overflow-y-auto p-4 pt-16 md:p-6 md:pt-6">{children}</main>
     </div>
   );
 }

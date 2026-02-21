@@ -112,11 +112,15 @@ export default function StrategyPage() {
   const [validation, setValidation] = useState<ValidationResult | null>(null);
 
   useEffect(() => {
-    api.strategies.list().then(setSavedStrategies).catch(() => {});
+    api.strategies.list().then(setSavedStrategies).catch((e) => {
+      console.error("Failed to load strategies:", e.message);
+    });
   }, []);
 
   const refreshList = () => {
-    api.strategies.list().then(setSavedStrategies).catch(() => {});
+    api.strategies.list().then(setSavedStrategies).catch((e) => {
+      console.error("Failed to refresh strategies:", e.message);
+    });
   };
 
   const handleParse = async () => {

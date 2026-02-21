@@ -49,7 +49,7 @@ export default function AnalyzerPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api.strategies.list().then(setStrategies).catch(() => {});
+    api.strategies.list().then(setStrategies).catch((e) => console.error("Failed to load strategies:", e.message));
   }, []);
 
   const handleAnalyze = async () => {

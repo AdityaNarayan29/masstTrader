@@ -55,7 +55,7 @@ export default function LivePage() {
 
   const stream = useLiveStream(symbol, timeframe);
   const liveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [polledPrice, setPolledPrice] = useState<{ bid: number; ask: number; symbol: string } | null>(null);
+  const [polledPrice, setPolledPrice] = useState<{ bid: number; ask: number; symbol: string; market_open?: boolean } | null>(null);
   const [polledAccount, setPolledAccount] = useState<typeof stream.account>(null);
   const [polledPositions, setPolledPositions] = useState<typeof stream.positions>([]);
 
@@ -83,9 +83,9 @@ export default function LivePage() {
       return;
     }
     const poll = () => {
-      api.mt5.price(symbol).then(setPolledPrice).catch(() => {});
-      api.mt5.account().then(setPolledAccount).catch(() => {});
-      api.mt5.positions().then(setPolledPositions).catch(() => {});
+      api.mt5.price(symbol).then(setPolledPrice).catch((e: Error) => console.error(e.message));
+      api.mt5.account().then(setPolledAccount).catch((e: Error) => console.error(e.message));
+      api.mt5.positions().then(setPolledPositions).catch((e: Error) => console.error(e.message));
     };
     poll();
     liveInterval.current = setInterval(poll, 1000);
@@ -153,6 +153,15 @@ export default function LivePage() {
           {statusLabel}
         </Badge>
       </div>
+
+      {/* Market Closed Banner */}
+      {price && price.market_open === false && (
+        <Card className="border-amber-500/50 bg-amber-500/10">
+          <CardContent className="py-3 text-sm text-amber-500 font-medium text-center">
+            Market is closed — prices shown are from the last trading session
+          </CardContent>
+        </Card>
+      )}
 
       {/* Error */}
       {stream.error && (

@@ -14,6 +14,7 @@ export interface PriceData {
   last: number;
   volume: number;
   time: string;
+  market_open?: boolean;
 }
 
 export interface PositionData {
@@ -197,28 +198,8 @@ export function useLiveStream(symbol: string, timeframe: string = "1m") {
       if (es.readyState === EventSource.CLOSED) {
         es.close();
         esRef.current = null;
-        // If SSE fails, fall back to demo simulation
-        if (isDemoMode() || !API_BASE) {
-          setError("");
-          setStatus("connected");
-          demoIntervalRef.current = setInterval(() => {
-            const { symbol: s } = paramsRef.current;
-            const p = tickPrice(s);
-            setPrice({
-              symbol: p.symbol, bid: p.bid, ask: p.ask,
-              last: p.bid, volume: Math.floor(Math.random() * 1000),
-              time: new Date().toISOString(),
-            });
-            setAccount(demoAccount() as AccountData);
-            setPositions([]);
-            if (demoAlgo.isRunning()) {
-              setAlgo(demoAlgo.status() as AlgoStatusData);
-            }
-          }, 500);
-        } else {
-          setError("SSE connection closed — using HTTP polling instead.");
-          setStatus("error");
-        }
+        setError("Live stream disconnected — server may be down");
+        setStatus("error");
       } else if (es.readyState === EventSource.CONNECTING) {
         setStatus("connecting");
       }

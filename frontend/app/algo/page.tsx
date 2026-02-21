@@ -120,7 +120,7 @@ export default function AlgoPage() {
 
   const stream = useLiveStream(symbol || "EURUSDm", timeframe);
   const liveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [polledPrice, setPolledPrice] = useState<{ bid: number; ask: number; symbol: string } | null>(null);
+  const [polledPrice, setPolledPrice] = useState<{ bid: number; ask: number; symbol: string; market_open?: boolean } | null>(null);
   const [polledAccount, setPolledAccount] = useState<typeof stream.account>(null);
   const [polledPositions, setPolledPositions] = useState<typeof stream.positions>([]);
 
@@ -245,7 +245,7 @@ export default function AlgoPage() {
           if (["1m", "5m", "15m", "30m", "1h", "4h"].includes(uiTf)) setTimeframe(uiTf);
         }
       }
-    }).catch(() => {});
+    }).catch((e: Error) => console.error(e.message));
   }, []);
 
   // Fetch full strategy (with ALL rules) when selection changes
@@ -262,7 +262,7 @@ export default function AlgoPage() {
   // Fetch trade history (raw MT5 deals for chart markers)
   useEffect(() => {
     if (!symbol) return;
-    api.data.trades(symbol, 30).then(setTradeHistory).catch(() => {});
+    api.data.trades(symbol, 30).then(setTradeHistory).catch((e: Error) => console.error(e.message));
   }, [symbol]);
 
   // Derive effective strategy ID for filtering trades
@@ -271,21 +271,21 @@ export default function AlgoPage() {
   // Fetch algo trades (enriched DB records) filtered by active strategy
   useEffect(() => {
     if (!symbol) return;
-    api.algo.trades(effectiveStrategyId, symbol, 100).then(setAlgoTrades).catch(() => {});
-    api.algo.tradeStats(effectiveStrategyId, symbol).then(setAlgoTradeStats).catch(() => {});
+    api.algo.trades(effectiveStrategyId, symbol, 100).then(setAlgoTrades).catch((e: Error) => console.error(e.message));
+    api.algo.tradeStats(effectiveStrategyId, symbol).then(setAlgoTradeStats).catch((e: Error) => console.error(e.message));
   }, [symbol, effectiveStrategyId]);
 
   // Refresh trade history + algo trades when a trade is closed
   useEffect(() => {
     if (!symbol || !algo?.trades_placed) return;
-    api.data.trades(symbol, 30).then(setTradeHistory).catch(() => {});
-    api.algo.trades(effectiveStrategyId, symbol, 100).then(setAlgoTrades).catch(() => {});
-    api.algo.tradeStats(effectiveStrategyId, symbol).then(setAlgoTradeStats).catch(() => {});
+    api.data.trades(symbol, 30).then(setTradeHistory).catch((e: Error) => console.error(e.message));
+    api.algo.trades(effectiveStrategyId, symbol, 100).then(setAlgoTrades).catch((e: Error) => console.error(e.message));
+    api.algo.tradeStats(effectiveStrategyId, symbol).then(setAlgoTradeStats).catch((e: Error) => console.error(e.message));
   }, [algo?.trades_placed, symbol, effectiveStrategyId]);
 
   // Poll algo status every 1s (HTTP baseline; SSE overlays when available)
   useEffect(() => {
-    const poll = () => api.algo.status().then(setPolledAlgo).catch(() => {});
+    const poll = () => api.algo.status().then(setPolledAlgo).catch((e: Error) => console.error(e.message));
     poll();
     algoInterval.current = setInterval(poll, 1000);
     return () => { if (algoInterval.current) clearInterval(algoInterval.current); };
@@ -306,7 +306,7 @@ export default function AlgoPage() {
     setStreamStarted(true);
     api.data.fetch(algoSym, uiTf, 200)
       .then((data) => setHistoricalCandles(data.candles as unknown as HistoricalCandle[]))
-      .catch(() => {})
+      .catch((e: Error) => console.error(e.message))
       .finally(() => setLoadingChart(false));
   }, [polledAlgo]);
 
@@ -317,9 +317,9 @@ export default function AlgoPage() {
       return;
     }
     const poll = () => {
-      api.mt5.price(symbol).then(setPolledPrice).catch(() => {});
-      api.mt5.account().then(setPolledAccount).catch(() => {});
-      api.mt5.positions().then(setPolledPositions).catch(() => {});
+      api.mt5.price(symbol).then(setPolledPrice).catch((e: Error) => console.error(e.message));
+      api.mt5.account().then(setPolledAccount).catch((e: Error) => console.error(e.message));
+      api.mt5.positions().then(setPolledPositions).catch((e: Error) => console.error(e.message));
     };
     poll();
     liveInterval.current = setInterval(poll, 1000);
@@ -408,6 +408,15 @@ export default function AlgoPage() {
           )}
         </div>
       </div>
+
+      {/* Market Closed Banner */}
+      {price && price.market_open === false && (
+        <Card className="border-amber-500/50 bg-amber-500/10">
+          <CardContent className="py-3 text-sm text-amber-500 font-medium text-center">
+            Market is closed — algo will not trade until the market reopens
+          </CardContent>
+        </Card>
+      )}
 
       {/* Error */}
       {stream.error && (
@@ -1642,7 +1651,13 @@ export default function AlgoPage() {
             </div>
           </CardContent>
         </Card>
-      ) : null}
+      ) : (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">
+            No trades recorded yet. Start the algo to begin trading.
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
