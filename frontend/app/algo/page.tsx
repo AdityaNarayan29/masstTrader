@@ -101,6 +101,10 @@ export default function AlgoPage() {
   const [algoStopping, setAlgoStopping] = useState(false);
   const algoInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Multi-instance: track all running algos
+  const [allAlgoInstances, setAllAlgoInstances] = useState<Record<string, AlgoStatus>>({});
+  const [viewingSymbol, setViewingSymbol] = useState<string | null>(null);
+
   // Chart state
   const [historicalCandles, setHistoricalCandles] = useState<HistoricalCandle[]>([]);
   const [loadingChart, setLoadingChart] = useState(false);
@@ -285,11 +289,25 @@ export default function AlgoPage() {
 
   // Poll algo status every 1s (HTTP baseline; SSE overlays when available)
   useEffect(() => {
-    const poll = () => api.algo.status().then(setPolledAlgo).catch((e: Error) => console.error(e.message));
+    const poll = () => api.algo.status().then((resp) => {
+      // Update all-instances map
+      const instances = (resp.instances ?? {}) as Record<string, AlgoStatus>;
+      setAllAlgoInstances(instances);
+      // Set polledAlgo to the viewed instance (or first, or legacy fields)
+      const activeSymbol = viewingSymbol || Object.keys(instances)[0];
+      if (activeSymbol && instances[activeSymbol]) {
+        setPolledAlgo(instances[activeSymbol]);
+      } else if (resp.running) {
+        // Fallback to legacy top-level fields
+        setPolledAlgo(resp as unknown as AlgoStatus);
+      } else {
+        setPolledAlgo(resp.running ? (resp as unknown as AlgoStatus) : null);
+      }
+    }).catch((e: Error) => console.error(e.message));
     poll();
     algoInterval.current = setInterval(poll, 1000);
     return () => { if (algoInterval.current) clearInterval(algoInterval.current); };
-  }, []);
+  }, [viewingSymbol]);
 
   // Auto-load chart when page opens and algo is already running
   useEffect(() => {
@@ -364,12 +382,16 @@ export default function AlgoPage() {
     }
   };
 
-  const handleStop = async () => {
+  const handleStop = async (sym?: string) => {
     setAlgoStopping(true);
     try {
-      await api.algo.stop();
-      const status = await api.algo.status();
-      setPolledAlgo(status);
+      await api.algo.stop(sym || viewingSymbol || symbol);
+      const resp = await api.algo.status();
+      const instances = (resp.instances ?? {}) as Record<string, AlgoStatus>;
+      setAllAlgoInstances(instances);
+      if (Object.keys(instances).length === 0) {
+        setPolledAlgo(null);
+      }
     } catch {
       // ignore
     } finally {
@@ -401,13 +423,53 @@ export default function AlgoPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {algo?.running && (
+          {Object.keys(allAlgoInstances).length > 0 && (
             <Badge className="bg-primary text-primary-foreground animate-pulse text-xs">
-              ALGO RUNNING
+              {Object.keys(allAlgoInstances).length > 1
+                ? `${Object.keys(allAlgoInstances).length} ALGOS RUNNING`
+                : "ALGO RUNNING"}
             </Badge>
           )}
         </div>
       </div>
+
+      {/* Multi-instance selector */}
+      {Object.keys(allAlgoInstances).length > 1 && (
+        <Card>
+          <CardContent className="py-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-muted-foreground">Running:</span>
+              {Object.entries(allAlgoInstances).map(([sym, inst]) => (
+                <Button
+                  key={sym}
+                  variant={(viewingSymbol || symbol) === sym ? "default" : "outline"}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    setViewingSymbol(sym);
+                    setSymbol(sym);
+                    stream.changeSymbol(sym);
+                  }}
+                >
+                  {sym}
+                  {inst.in_position && <span className="ml-1 h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />}
+                </Button>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs text-destructive border-destructive/30"
+                onClick={() => api.algo.stop().then(() => api.algo.status().then((resp) => {
+                  setAllAlgoInstances((resp.instances ?? {}) as Record<string, AlgoStatus>);
+                  setPolledAlgo(null);
+                }))}
+              >
+                Stop All
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Market Closed Banner */}
       {price && price.market_open === false && (
@@ -438,7 +500,7 @@ export default function AlgoPage() {
         <CardContent className="space-y-4">
           {/* Config row */}
           <div className="flex flex-wrap items-end gap-4">
-            {strategies.length > 0 && !algo?.running && (
+            {strategies.length > 0 && !(symbol in allAlgoInstances) && (
               <div className="space-y-2">
                 <Label>Strategy</Label>
                 <Select value={strategyId} onValueChange={(id) => {
@@ -492,7 +554,7 @@ export default function AlgoPage() {
                 <Select
                   value={timeframe}
                   onValueChange={setTimeframe}
-                  disabled={algo?.running === true}
+                  disabled={symbol in allAlgoInstances}
                 >
                   <SelectTrigger className="w-24">
                     <SelectValue />
@@ -507,7 +569,7 @@ export default function AlgoPage() {
                 </Select>
               </div>
             )}
-            {!algo?.running && (
+            {!(symbol in allAlgoInstances) && (
               <div className="space-y-2">
                 <Label>
                   {selectedStrategy?.stop_loss_atr_multiplier ? "Fallback Vol" : "Volume"}
@@ -531,22 +593,22 @@ export default function AlgoPage() {
 
           {/* Action buttons */}
           <div className="flex flex-wrap items-center gap-3">
-            {!algo?.running ? (
+            {!(symbol in allAlgoInstances) ? (
               <Button
                 onClick={handleStart}
                 disabled={algoLoading || !symbol || (strategyId === "__current__" && strategies.length > 0)}
               >
                 {algoLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                {algoLoading ? "Starting..." : "Start Algo"}
+                {algoLoading ? "Starting..." : Object.keys(allAlgoInstances).length > 0 ? `Start on ${symbol}` : "Start Algo"}
               </Button>
             ) : (
               <Button
                 variant="destructive"
-                onClick={handleStop}
+                onClick={() => handleStop(symbol)}
                 disabled={algoStopping}
               >
                 {algoStopping && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                {algoStopping ? "Stopping..." : "Stop Algo"}
+                {algoStopping ? "Stopping..." : `Stop ${symbol}`}
               </Button>
             )}
             {loadingChart && (
@@ -557,7 +619,7 @@ export default function AlgoPage() {
           </div>
 
           {/* Strategy preview — all rules */}
-          {selectedStrategy && !algo?.running && (() => {
+          {selectedStrategy && !(symbol in allAlgoInstances) && (() => {
             const rules = fullStrategy?.rules ?? [];
             // Fallback: if full strategy not loaded yet, show first rule from list data
             const displayRules: FullRule[] = rules.length > 0 ? rules : [{

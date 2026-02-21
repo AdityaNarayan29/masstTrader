@@ -208,24 +208,39 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                 )}
               </div>
             )}
-            {ticker.algo?.running && (
-              <div className="space-y-1 pt-1">
-                <Badge variant="default" className="text-[10px] h-5 w-full justify-center animate-pulse">
-                  ALGO RUNNING
-                </Badge>
-                <div className="text-[10px] text-muted-foreground space-y-0.5">
-                  {ticker.algo.strategy_name && (
-                    <p className="truncate" title={ticker.algo.strategy_name}>{ticker.algo.strategy_name}</p>
-                  )}
-                  <div className="flex justify-between">
-                    <span>Trades: <span className="font-mono font-medium text-foreground">{ticker.algo.trades_placed}</span></span>
-                    <Badge variant={ticker.algo.in_position ? "default" : "secondary"} className="text-[9px] h-4">
-                      {ticker.algo.in_position ? "IN TRADE" : "WATCHING"}
-                    </Badge>
-                  </div>
+            {ticker.algo?.running && (() => {
+              const instances = ticker.algo.instances && ticker.algo.instances.length > 0
+                ? ticker.algo.instances
+                : [{
+                    symbol: ticker.algo.symbol || "",
+                    strategy_name: ticker.algo.strategy_name,
+                    trades_placed: ticker.algo.trades_placed,
+                    in_position: ticker.algo.in_position,
+                  }];
+              return (
+                <div className="space-y-1 pt-1">
+                  <Badge variant="default" className="text-[10px] h-5 w-full justify-center animate-pulse">
+                    {instances.length > 1 ? `${instances.length} ALGOS RUNNING` : "ALGO RUNNING"}
+                  </Badge>
+                  {instances.map((inst) => (
+                    <div key={inst.symbol} className={`text-[10px] text-muted-foreground space-y-0.5 ${instances.length > 1 ? "border-t border-border/30 pt-1" : ""}`}>
+                      {instances.length > 1 && (
+                        <p className="font-mono font-medium text-foreground text-[9px]">{inst.symbol}</p>
+                      )}
+                      {inst.strategy_name && (
+                        <p className="truncate" title={inst.strategy_name}>{inst.strategy_name}</p>
+                      )}
+                      <div className="flex justify-between">
+                        <span>Trades: <span className="font-mono font-medium text-foreground">{inst.trades_placed}</span></span>
+                        <Badge variant={inst.in_position ? "default" : "secondary"} className="text-[9px] h-4">
+                          {inst.in_position ? "IN TRADE" : "WATCHING"}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         )}
 

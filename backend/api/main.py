@@ -79,40 +79,55 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(APIKeyMiddleware)
 
-# ── Global state (protected by _state_lock for thread-safety) ──
-_state_lock = threading.Lock()
+# ── Global state ──
 connector = None
 historical_data = None
 current_strategy = None
 backtest_results = None
 trade_history = None
 
-# Algo trading state
-algo_state = {
-    "running": False,
-    "symbol": None,
-    "timeframe": "5m",
-    "strategy_name": None,
-    "volume": 0.01,
-    "signals": [],       # recent signal log
-    "trades_placed": 0,
-    "in_position": False,
-    "position_ticket": None,
-    # Live market data (updated each loop iteration)
-    "current_price": None,           # {bid, ask, spread}
-    "indicators": {},                # latest indicator snapshot
-    "entry_conditions": [],          # conditions with pass/fail status
-    "exit_conditions": [],           # conditions with pass/fail status
-    "last_check": None,              # ISO timestamp of last evaluation
-    "strategy_rules": None,          # the rule being used
-    "active_rule_index": 0,          # index of the rule being executed
-    # TradeState — structured trade lifecycle tracking
-    "trade_state": None,             # dict when in position, None otherwise
-    # DB trade record tracking
-    "current_algo_trade_id": None,   # ID of open algo_trades record
-}
-algo_thread = None
-algo_stop_event = threading.Event()
+
+# ── Multi-instance algo trading ──
+
+def _make_algo_state(symbol=None, timeframe="5m", strategy_name=None, strategy_id=None, volume=0.01):
+    """Create a fresh per-instance algo state dict."""
+    return {
+        "running": True,
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "strategy_name": strategy_name,
+        "strategy_id": strategy_id,
+        "volume": volume,
+        "signals": [],
+        "trades_placed": 0,
+        "in_position": False,
+        "position_ticket": None,
+        "current_price": None,
+        "indicators": {},
+        "entry_conditions": [],
+        "exit_conditions": [],
+        "last_check": None,
+        "strategy_rules": None,
+        "active_rule_index": 0,
+        "trade_state": None,
+        "current_algo_trade_id": None,
+    }
+
+
+class AlgoInstance:
+    """One algo running on one symbol."""
+    __slots__ = ("state", "thread", "stop_event")
+
+    def __init__(self, symbol: str, timeframe: str, volume: float,
+                 strategy_name: str, strategy_id: str | None):
+        self.state = _make_algo_state(symbol, timeframe, strategy_name, strategy_id, volume)
+        self.thread: threading.Thread | None = None
+        self.stop_event = threading.Event()
+
+
+# Registry: symbol → AlgoInstance (one algo per symbol)
+algo_instances: dict[str, AlgoInstance] = {}
+_instances_lock = threading.Lock()
 
 
 # ── Request/Response Models ──
@@ -819,16 +834,16 @@ def get_lesson_endpoint(req: LessonRequest):
 # ALGO TRADING ENGINE
 # ──────────────────────────────────────
 
-def _add_signal(action: str, detail: str):
-    """Append a signal entry to algo_state (keep last 50)."""
+def _add_signal(state: dict, action: str, detail: str):
+    """Append a signal entry to an algo instance state dict (keep last 50)."""
     from datetime import datetime, timezone
-    algo_state["signals"].append({
+    state["signals"].append({
         "time": datetime.now(timezone.utc).isoformat(),
         "action": action,
         "detail": detail,
     })
-    if len(algo_state["signals"]) > 50:
-        algo_state["signals"] = algo_state["signals"][-50:]
+    if len(state["signals"]) > 50:
+        state["signals"] = state["signals"][-50:]
 
 
 def _calculate_lot_size(equity, risk_percent, sl_distance, tick_value, tick_size, volume_min, volume_max, volume_step):
@@ -886,9 +901,9 @@ def _determine_exit_reason(ticket, symbol, trade_state):
     return "external"
 
 
-def _record_algo_trade_exit(exit_indicators, exit_reason, bars_held, symbol, ticket):
+def _record_algo_trade_exit(state: dict, exit_indicators, exit_reason, bars_held, symbol, ticket):
     """Close the current algo trade record in DB with exit data."""
-    trade_id = algo_state.get("current_algo_trade_id")
+    trade_id = state.get("current_algo_trade_id")
     if not trade_id:
         return
     pnl_data = _get_mt5_exit_pnl(ticket, symbol)
@@ -904,23 +919,30 @@ def _record_algo_trade_exit(exit_indicators, exit_reason, bars_held, symbol, tic
         "swap": pnl_data.get("swap"),
         "net_pnl": pnl_data.get("net_pnl"),
     }))
-    algo_state["current_algo_trade_id"] = None
+    state["current_algo_trade_id"] = None
 
 
-def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
+def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: str, volume: float):
     """Background thread: monitors market and trades based on strategy rules."""
     from backend.core.indicators import add_all_indicators, get_indicator_snapshot
     from backend.core.backtester import evaluate_condition, _resolve_column
     from datetime import datetime, timezone
 
+    state = instance.state
+    stop_ev = instance.stop_event
+
+    # Helper: submit MT5 call through single-threaded executor (thread safety)
+    def _mt5(fn, *args, **kwargs):
+        return mt5_executor.submit(fn, *args, **kwargs).result(timeout=15)
+
     try:
         rules = strategy.get("rules", [])
         if not rules:
-            _add_signal("error", "Strategy has no rules")
+            _add_signal(state, "error", "Strategy has no rules")
             return
 
         if len(rules) > 1:
-            _add_signal("info", f"Strategy has {len(rules)} rules — using first rule (multi-rule not yet supported)")
+            _add_signal(state, "info", f"Strategy has {len(rules)} rules — using first rule (multi-rule not yet supported)")
         rule = rules[0]
         entry_conditions = rule.get("entry_conditions", [])
         exit_conditions = rule.get("exit_conditions", [])
@@ -932,7 +954,7 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
         risk_percent = rule.get("risk_percent", 1.0)
         additional_tfs = rule.get("additional_timeframes") or []
         direction = rule.get("direction", "buy")  # "buy" or "sell"
-        algo_state["strategy_rules"] = rule
+        state["strategy_rules"] = rule
 
         # Strategy context for DB trade recording
         strategy_id = strategy.get("id")  # None for in-memory strategies
@@ -940,11 +962,11 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
         rule_name = rule.get("name", "")
         rule_index = 0
 
-        connector.select_symbol(symbol)
+        _mt5(connector.select_symbol, symbol)
 
         # Get pip value and symbol sizing info
         try:
-            sym_info = connector.get_symbol_info(symbol)
+            sym_info = _mt5(connector.get_symbol_info, symbol)
             pip_value = sym_info["point"] * 10
             tick_value = sym_info.get("trade_tick_value", 0.00001)
             tick_size = sym_info.get("trade_tick_size", 0.00001)
@@ -961,9 +983,9 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
 
         sl_mode = "ATR" if sl_atr_mult else ("pips" if sl_pips else "none")
         tp_mode = "ATR" if tp_atr_mult else ("pips" if tp_pips else "none")
-        _add_signal("start", f"Algo started: {symbol} / {timeframe} / {direction} / SL={sl_mode} TP={tp_mode} / risk={risk_percent}%")
+        _add_signal(state, "start", f"Algo started: {symbol} / {timeframe} / {direction} / SL={sl_mode} TP={tp_mode} / risk={risk_percent}%")
         if additional_tfs:
-            _add_signal("info", f"Multi-TF enabled: {', '.join(additional_tfs)}")
+            _add_signal(state, "info", f"Multi-TF enabled: {', '.join(additional_tfs)}")
 
         price_info = None
         check_count = 0
@@ -973,14 +995,14 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
 
         # Check for existing open positions on this symbol (prevents stacking)
         try:
-            existing_positions = connector.get_positions()
+            existing_positions = _mt5(connector.get_positions)
             for pos in existing_positions:
                 if pos["symbol"] == symbol:
-                    algo_state["in_position"] = True
-                    algo_state["position_ticket"] = pos["ticket"]
-                    _add_signal("info", f"Found existing position #{pos['ticket']} for {symbol} — resuming tracking")
+                    state["in_position"] = True
+                    state["position_ticket"] = pos["ticket"]
+                    _add_signal(state, "info", f"Found existing position #{pos['ticket']} for {symbol} — resuming tracking")
                     # Build a partial trade_state from MT5 position
-                    algo_state["trade_state"] = sanitize_for_json({
+                    state["trade_state"] = sanitize_for_json({
                         "ticket": pos["ticket"],
                         "entry_price": pos["open_price"],
                         "sl_price": pos.get("stop_loss") or None,
@@ -995,51 +1017,51 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                     })
                     # Resume DB trade record if one exists for this ticket
                     try:
-                        existing_db_trade = get_open_algo_trade()
+                        existing_db_trade = get_open_algo_trade(symbol)
                         if existing_db_trade and existing_db_trade.get("mt5_ticket") == pos["ticket"]:
-                            algo_state["current_algo_trade_id"] = existing_db_trade["id"]
-                            _add_signal("info", f"Resumed DB trade record {existing_db_trade['id'][:8]}")
+                            state["current_algo_trade_id"] = existing_db_trade["id"]
+                            _add_signal(state, "info", f"Resumed DB trade record {existing_db_trade['id'][:8]}")
                     except Exception:
                         pass
                     break
         except Exception:
             pass
 
-        while not algo_stop_event.is_set():
+        while not stop_ev.is_set():
             try:
                 check_count += 1
 
                 # Check if MT5 connection is still alive
                 if connector is None or not connector.is_connected:
-                    _add_signal("error", "MT5 connection lost — stopping algo")
+                    _add_signal(state, "error", "MT5 connection lost — stopping algo")
                     return
 
                 # Get current price
                 try:
-                    price_info = connector.get_symbol_price(symbol)
-                    algo_state["current_price"] = sanitize_for_json({
+                    price_info = _mt5(connector.get_symbol_price, symbol)
+                    state["current_price"] = sanitize_for_json({
                         "bid": price_info["bid"],
                         "ask": price_info["ask"],
                         "spread": price_info["ask"] - price_info["bid"],
                     })
                 except Exception as e:
-                    _add_signal("error", f"Price fetch failed: {e}")
-                    algo_stop_event.wait(5)
+                    _add_signal(state, "error", f"Price fetch failed: {e}")
+                    stop_ev.wait(5)
                     continue
 
                 # Fetch latest candles + indicators
-                df = connector.get_history(symbol, timeframe, 100)
+                df = _mt5(connector.get_history, symbol, timeframe, 100)
                 df = add_all_indicators(df)
                 df = df.dropna().reset_index()
 
                 if len(df) < 2:
-                    algo_stop_event.wait(10)
+                    stop_ev.wait(10)
                     continue
 
                 # Multi-TF: merge higher-timeframe indicator values
                 for atf in additional_tfs:
                     try:
-                        df_atf = connector.get_history(symbol, atf, 100)
+                        df_atf = _mt5(connector.get_history, symbol, atf, 100)
                         df_atf = add_all_indicators(df_atf)
                         df_atf = df_atf.dropna()
                         if len(df_atf) < 1:
@@ -1049,7 +1071,7 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                             if col not in ("open", "high", "low", "close", "volume", "datetime", "index"):
                                 df[f"{col}_{atf}"] = last_row_atf[col]  # broadcast scalar
                     except Exception as e:
-                        _add_signal("warn", f"Multi-TF {atf} failed: {e}")
+                        _add_signal(state, "warn", f"Multi-TF {atf} failed: {e}")
 
                 row = df.iloc[-1]
                 prev_row = df.iloc[-2]
@@ -1058,14 +1080,14 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                 current_candle_time = str(row.get("datetime", ""))
                 if current_candle_time != last_candle_time:
                     last_candle_time = current_candle_time
-                    if algo_state["in_position"]:
+                    if state["in_position"]:
                         bars_in_trade += 1
 
                 # Update indicator snapshot
-                algo_state["indicators"] = sanitize_for_json(
+                state["indicators"] = sanitize_for_json(
                     get_indicator_snapshot(df, -1)
                 )
-                algo_state["last_check"] = datetime.now(timezone.utc).isoformat()
+                state["last_check"] = datetime.now(timezone.utc).isoformat()
 
                 # Evaluate each entry condition individually and store results
                 entry_results = []
@@ -1079,7 +1101,7 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                         "value": c.get("value"),
                         "passed": passed,
                     })
-                algo_state["entry_conditions"] = entry_results
+                state["entry_conditions"] = entry_results
 
                 # Evaluate each exit condition individually
                 exit_results = []
@@ -1093,7 +1115,7 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                         "value": c.get("value"),
                         "passed": passed,
                     })
-                algo_state["exit_conditions"] = exit_results
+                state["exit_conditions"] = exit_results
 
                 # Log when conditions change (deduped) or every ~2min as heartbeat
                 entry_pass = sum(1 for r in entry_results if r["passed"])
@@ -1105,10 +1127,10 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                 last_cond_state = current_cond_state
 
                 if cond_changed or is_heartbeat:
-                    pos_status = "IN_POSITION" if algo_state["in_position"] else "WATCHING"
+                    pos_status = "IN_POSITION" if state["in_position"] else "WATCHING"
                     # Build per-condition detail string
                     cond_details = []
-                    active_results = exit_results if algo_state["in_position"] else entry_results
+                    active_results = exit_results if state["in_position"] else entry_results
                     for r in active_results:
                         ind = r["indicator"]
                         param = r["parameter"]
@@ -1120,15 +1142,15 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                         cond_details.append(f"{ind}.{param}={val}{mark}")
                     detail_str = " | ".join(cond_details) if cond_details else ""
                     tag = "check" if is_heartbeat and not cond_changed else "flip"
-                    if algo_state["in_position"]:
+                    if state["in_position"]:
                         exit_pass = sum(1 for r in exit_results if r["passed"])
                         exit_total = len(exit_results)
                         bars_str = f" | bars={bars_in_trade}/{min_bars}" if min_bars > 0 else ""
-                        _add_signal(tag, f"{pos_status} | bid={bid:.5f} | {detail_str} | exit {exit_pass}/{exit_total}{bars_str}")
+                        _add_signal(state, tag, f"{pos_status} | bid={bid:.5f} | {detail_str} | exit {exit_pass}/{exit_total}{bars_str}")
                     else:
-                        _add_signal(tag, f"{pos_status} | bid={bid:.5f} | {detail_str} | entry {entry_pass}/{entry_total}")
+                        _add_signal(state, tag, f"{pos_status} | bid={bid:.5f} | {detail_str} | entry {entry_pass}/{entry_total}")
 
-                if not algo_state["in_position"]:
+                if not state["in_position"]:
                     # Check if ALL entry conditions are met
                     all_entry = all(r["passed"] for r in entry_results)
                     if all_entry and len(entry_conditions) > 0:
@@ -1162,7 +1184,7 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                             actual_volume = volume
                             if sl_price is not None:
                                 try:
-                                    acct = connector.get_account_info()
+                                    acct = _mt5(connector.get_account_info)
                                     sl_dist = abs(entry_price - sl_price)
                                     actual_volume = _calculate_lot_size(
                                         acct["equity"], risk_percent, sl_dist,
@@ -1171,7 +1193,7 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                                 except Exception:
                                     actual_volume = volume
 
-                            result = connector.place_trade(
+                            result = _mt5(connector.place_trade,
                                 symbol=symbol,
                                 trade_type=direction,
                                 volume=actual_volume,
@@ -1180,13 +1202,13 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                                 comment=f"MT|{strategy_name[:20]}",
                             )
                             if result.get("success"):
-                                algo_state["in_position"] = True
-                                algo_state["position_ticket"] = result.get("order_id")
-                                algo_state["trades_placed"] += 1
+                                state["in_position"] = True
+                                state["position_ticket"] = result.get("order_id")
+                                state["trades_placed"] += 1
                                 bars_in_trade = 1  # entry candle counts as bar 1
                                 entry_time_iso = datetime.now(timezone.utc).isoformat()
                                 # Build TradeState
-                                algo_state["trade_state"] = sanitize_for_json({
+                                state["trade_state"] = sanitize_for_json({
                                     "ticket": result.get("order_id"),
                                     "entry_price": entry_price,
                                     "sl_price": sl_price,
@@ -1223,110 +1245,140 @@ def _algo_loop(strategy: dict, symbol: str, timeframe: str, volume: float):
                                         "entry_conditions": entry_cond_results,
                                         "mt5_ticket": result.get("order_id"),
                                     }))
-                                    algo_state["current_algo_trade_id"] = db_trade["id"]
+                                    state["current_algo_trade_id"] = db_trade["id"]
                                 except Exception as e:
-                                    _add_signal("warn", f"DB trade record failed: {e}")
+                                    _add_signal(state, "warn", f"DB trade record failed: {e}")
                                 sl_str = f" SL={sl_price:.5f}" if sl_price else ""
                                 tp_str = f" TP={tp_price:.5f}" if tp_price else ""
                                 atr_str = f" ATR={atr_val:.5f}" if atr_val > 0 else ""
-                                _add_signal(direction, f"Entry {direction.upper()} at {entry_price:.5f}{sl_str}{tp_str}{atr_str} | vol={actual_volume} | ticket={result.get('order_id')}")
+                                _add_signal(state, direction, f"Entry {direction.upper()} at {entry_price:.5f}{sl_str}{tp_str}{atr_str} | vol={actual_volume} | ticket={result.get('order_id')}")
                             else:
-                                _add_signal("error", f"Trade failed (rc={result.get('retcode')}): {result.get('message', 'unknown')} | SL={sl_price} TP={tp_price}")
+                                _add_signal(state, "error", f"Trade failed (rc={result.get('retcode')}): {result.get('message', 'unknown')} | SL={sl_price} TP={tp_price}")
                         except Exception as e:
-                            _add_signal("error", f"Trade error: {str(e)}")
+                            _add_signal(state, "error", f"Trade error: {str(e)}")
                 else:
                     # Update bars_since_entry in trade_state
-                    if algo_state.get("trade_state"):
-                        algo_state["trade_state"]["bars_since_entry"] = bars_in_trade
+                    if state.get("trade_state"):
+                        state["trade_state"]["bars_since_entry"] = bars_in_trade
 
                     # Check exit conditions — gated behind min_bars
                     if bars_in_trade >= min_bars:
                         all_exit = exit_results and all(r["passed"] for r in exit_results)
                         if all_exit:
                             try:
-                                ticket = algo_state["position_ticket"]
+                                ticket = state["position_ticket"]
                                 if ticket:
-                                    close_result = connector.close_position(ticket)
+                                    close_result = _mt5(connector.close_position, ticket)
                                     if close_result.get("success"):
                                         # Record strategy exit in DB
                                         try:
                                             exit_snap = sanitize_for_json(get_indicator_snapshot(df, -1))
-                                            _record_algo_trade_exit(exit_snap, "strategy_exit", bars_in_trade, symbol, ticket)
+                                            _record_algo_trade_exit(state, exit_snap, "strategy_exit", bars_in_trade, symbol, ticket)
                                         except Exception as e:
-                                            _add_signal("warn", f"DB exit record failed: {e}")
-                                        _add_signal("close", f"Exit signal — closed ticket {ticket} | bars_held={bars_in_trade}")
-                                        algo_state["in_position"] = False
-                                        algo_state["position_ticket"] = None
-                                        algo_state["trade_state"] = None
+                                            _add_signal(state, "warn", f"DB exit record failed: {e}")
+                                        _add_signal(state, "close", f"Exit signal — closed ticket {ticket} | bars_held={bars_in_trade}")
+                                        state["in_position"] = False
+                                        state["position_ticket"] = None
+                                        state["trade_state"] = None
                                         bars_in_trade = 0
                                     else:
-                                        _add_signal("error", f"Close failed: {close_result.get('message', 'unknown')}")
+                                        _add_signal(state, "error", f"Close failed: {close_result.get('message', 'unknown')}")
                             except Exception as e:
-                                _add_signal("error", f"Close error: {str(e)}")
+                                _add_signal(state, "error", f"Close error: {str(e)}")
 
                     # Check if position was closed externally (SL/TP hit)
-                    if algo_state["in_position"]:
-                        positions = connector.get_positions()
-                        ticket = algo_state["position_ticket"]
+                    if state["in_position"]:
+                        positions = _mt5(connector.get_positions)
+                        ticket = state["position_ticket"]
                         still_open = any(p["ticket"] == ticket for p in positions)
                         if not still_open:
                             # Record external exit in DB
                             try:
                                 exit_snap = sanitize_for_json(get_indicator_snapshot(df, -1))
-                                exit_reason = _determine_exit_reason(ticket, symbol, algo_state.get("trade_state"))
-                                _record_algo_trade_exit(exit_snap, exit_reason, bars_in_trade, symbol, ticket)
+                                exit_reason = _determine_exit_reason(ticket, symbol, state.get("trade_state"))
+                                _record_algo_trade_exit(state, exit_snap, exit_reason, bars_in_trade, symbol, ticket)
                             except Exception as e:
-                                _add_signal("warn", f"DB exit record failed: {e}")
-                            _add_signal("closed", f"Position {ticket} closed ({exit_reason}) | bars_held={bars_in_trade}")
-                            algo_state["in_position"] = False
-                            algo_state["position_ticket"] = None
-                            algo_state["trade_state"] = None
+                                _add_signal(state, "warn", f"DB exit record failed: {e}")
+                            _add_signal(state, "closed", f"Position {ticket} closed ({exit_reason}) | bars_held={bars_in_trade}")
+                            state["in_position"] = False
+                            state["position_ticket"] = None
+                            state["trade_state"] = None
                             bars_in_trade = 0
 
             except Exception as e:
-                _add_signal("error", str(e))
+                _add_signal(state, "error", str(e))
 
             # Wait before next check
-            algo_stop_event.wait(5)
+            stop_ev.wait(5)
 
-        _add_signal("stop", "Algo stopped")
+        _add_signal(state, "stop", "Algo stopped")
 
     except Exception as e:
-        _add_signal("error", f"Algo crashed: {str(e)}")
+        _add_signal(state, "error", f"Algo crashed: {str(e)}")
     finally:
         # If algo stopped while in position, close MT5 position and mark DB trade
-        if algo_state.get("in_position") and algo_state.get("position_ticket"):
-            ticket = algo_state["position_ticket"]
+        if state.get("in_position") and state.get("position_ticket"):
+            ticket = state["position_ticket"]
             try:
-                _add_signal("info", f"Closing open position #{ticket} (algo stopped)")
-                connector.close_position(ticket)
+                _add_signal(state, "info", f"Closing open position #{ticket} (algo stopped)")
+                _mt5(connector.close_position, ticket)
             except Exception as e:
-                _add_signal("warn", f"Failed to close position #{ticket}: {e}")
-        if algo_state.get("current_algo_trade_id"):
+                _add_signal(state, "warn", f"Failed to close position #{ticket}: {e}")
+        if state.get("current_algo_trade_id"):
             try:
                 from datetime import datetime, timezone as tz
-                close_algo_trade(algo_state["current_algo_trade_id"], {
+                close_algo_trade(state["current_algo_trade_id"], {
                     "exit_time": datetime.now(tz.utc).isoformat(),
                     "exit_reason": "algo_stopped",
                     "bars_held": bars_in_trade if "bars_in_trade" in dir() else 0,
                 })
             except Exception:
                 pass
-            algo_state["current_algo_trade_id"] = None
-        algo_state["in_position"] = False
-        algo_state["position_ticket"] = None
-        algo_state["trade_state"] = None
-        algo_state["running"] = False
+            state["current_algo_trade_id"] = None
+        state["in_position"] = False
+        state["position_ticket"] = None
+        state["trade_state"] = None
+        state["running"] = False
+        # Remove from registry
+        with _instances_lock:
+            algo_instances.pop(symbol, None)
+
+
+def _instance_to_dict(inst: AlgoInstance) -> dict:
+    """Convert an AlgoInstance to the status dict."""
+    s = inst.state
+    return {
+        "running": s["running"],
+        "symbol": s["symbol"],
+        "timeframe": s["timeframe"],
+        "strategy_name": s["strategy_name"],
+        "strategy_id": s.get("strategy_id"),
+        "volume": s["volume"],
+        "in_position": s["in_position"],
+        "position_ticket": s["position_ticket"],
+        "trades_placed": s["trades_placed"],
+        "signals": s["signals"][-20:],
+        "current_price": s["current_price"],
+        "indicators": s["indicators"],
+        "entry_conditions": s["entry_conditions"],
+        "exit_conditions": s["exit_conditions"],
+        "last_check": s["last_check"],
+        "trade_state": s.get("trade_state"),
+        "active_rule_index": s.get("active_rule_index", 0),
+    }
 
 
 @app.post("/api/algo/start")
 def algo_start(req: AlgoStartRequest):
-    global algo_thread, current_strategy
+    global current_strategy
 
-    if algo_state["running"]:
-        raise HTTPException(status_code=400, detail="Algo already running")
     if not connector or not connector.is_connected:
         raise HTTPException(status_code=400, detail="MT5 not connected")
+
+    # Check if an algo is already running on this symbol
+    with _instances_lock:
+        if req.symbol in algo_instances:
+            raise HTTPException(status_code=400, detail=f"Algo already running on {req.symbol}")
 
     # Load strategy if ID provided
     if req.strategy_id:
@@ -1346,61 +1398,95 @@ def algo_start(req: AlgoStartRequest):
         if rule_tf:
             effective_tf = rule_tf
 
-    algo_stop_event.clear()
-    algo_state["running"] = True
-    algo_state["symbol"] = req.symbol
-    algo_state["timeframe"] = effective_tf
-    algo_state["volume"] = req.volume
-    algo_state["strategy_name"] = current_strategy.get("name", "Unknown")
-    algo_state["strategy_id"] = current_strategy.get("id")
-    algo_state["signals"] = []
-    algo_state["trades_placed"] = 0
-    algo_state["in_position"] = False
-    algo_state["position_ticket"] = None
-    algo_state["trade_state"] = None
-    algo_state["current_algo_trade_id"] = None
+    # Create instance
+    instance = AlgoInstance(
+        symbol=req.symbol,
+        timeframe=effective_tf,
+        volume=req.volume,
+        strategy_name=current_strategy.get("name", "Unknown"),
+        strategy_id=current_strategy.get("id"),
+    )
 
-    algo_thread = threading.Thread(
+    # Register before starting thread
+    with _instances_lock:
+        algo_instances[req.symbol] = instance
+
+    instance.thread = threading.Thread(
         target=_algo_loop,
-        args=(current_strategy, req.symbol, effective_tf, req.volume),
+        args=(instance, current_strategy, req.symbol, effective_tf, req.volume),
         daemon=True,
     )
-    algo_thread.start()
+    instance.thread.start()
 
-    return {"success": True, "message": f"Algo started on {req.symbol}"}
+    return {"success": True, "symbol": req.symbol, "message": f"Algo started on {req.symbol}"}
 
 
 @app.post("/api/algo/stop")
-def algo_stop():
-    if not algo_state["running"]:
-        raise HTTPException(status_code=400, detail="Algo not running")
-    algo_stop_event.set()
-    algo_state["running"] = False
-    return {"success": True, "message": "Algo stop requested"}
+def algo_stop(symbol: str = None):
+    """Stop algo on a specific symbol, or stop all if no symbol given."""
+    with _instances_lock:
+        if symbol:
+            instance = algo_instances.get(symbol)
+            if not instance:
+                raise HTTPException(status_code=400, detail=f"No algo running on {symbol}")
+            instance.stop_event.set()
+            instance.state["running"] = False
+            return {"success": True, "message": f"Algo stop requested for {symbol}"}
+        else:
+            # Stop all
+            if not algo_instances:
+                raise HTTPException(status_code=400, detail="No algos running")
+            count = len(algo_instances)
+            for inst in algo_instances.values():
+                inst.stop_event.set()
+                inst.state["running"] = False
+            return {"success": True, "message": f"Stop requested for {count} algo(s)"}
 
 
 @app.get("/api/algo/status")
-def algo_status():
-    data = {
-        "running": algo_state["running"],
-        "symbol": algo_state["symbol"],
-        "timeframe": algo_state["timeframe"],
-        "strategy_name": algo_state["strategy_name"],
-        "strategy_id": algo_state.get("strategy_id"),
-        "volume": algo_state["volume"],
-        "in_position": algo_state["in_position"],
-        "position_ticket": algo_state["position_ticket"],
-        "trades_placed": algo_state["trades_placed"],
-        "signals": algo_state["signals"][-20:],
-        "current_price": algo_state["current_price"],
-        "indicators": algo_state["indicators"],
-        "entry_conditions": algo_state["entry_conditions"],
-        "exit_conditions": algo_state["exit_conditions"],
-        "last_check": algo_state["last_check"],
-        "trade_state": algo_state.get("trade_state"),
-        "active_rule_index": algo_state.get("active_rule_index", 0),
+def algo_status(symbol: str = None):
+    """Get algo status. If symbol given, return that instance. Otherwise return all."""
+    if symbol:
+        instance = algo_instances.get(symbol)
+        if not instance:
+            return JSONResponse(content=sanitize_for_json({
+                "running": False, "symbol": symbol, "timeframe": "5m",
+                "strategy_name": None, "strategy_id": None, "volume": 0.01,
+                "in_position": False, "position_ticket": None, "trades_placed": 0,
+                "signals": [], "current_price": None, "indicators": {},
+                "entry_conditions": [], "exit_conditions": [], "last_check": None,
+                "trade_state": None, "active_rule_index": 0,
+            }))
+        return JSONResponse(content=sanitize_for_json(_instance_to_dict(instance)))
+
+    # Return all instances + backward-compatible top-level fields
+    instances_dict = {}
+    for sym, inst in algo_instances.items():
+        instances_dict[sym] = _instance_to_dict(inst)
+
+    first = next(iter(algo_instances.values()), None)
+    result = {
+        "running": len(algo_instances) > 0,
+        "instances": instances_dict,
+        # Legacy fields (first running instance) for backward compat
+        "symbol": first.state["symbol"] if first else None,
+        "timeframe": first.state["timeframe"] if first else "5m",
+        "strategy_name": first.state["strategy_name"] if first else None,
+        "strategy_id": first.state.get("strategy_id") if first else None,
+        "volume": first.state["volume"] if first else 0.01,
+        "in_position": first.state["in_position"] if first else False,
+        "position_ticket": first.state["position_ticket"] if first else None,
+        "trades_placed": first.state["trades_placed"] if first else 0,
+        "signals": first.state["signals"][-20:] if first else [],
+        "current_price": first.state["current_price"] if first else None,
+        "indicators": first.state["indicators"] if first else {},
+        "entry_conditions": first.state["entry_conditions"] if first else [],
+        "exit_conditions": first.state["exit_conditions"] if first else [],
+        "last_check": first.state["last_check"] if first else None,
+        "trade_state": first.state.get("trade_state") if first else None,
+        "active_rule_index": first.state.get("active_rule_index", 0) if first else 0,
     }
-    return JSONResponse(content=sanitize_for_json(data))
+    return JSONResponse(content=sanitize_for_json(result))
 
 
 @app.get("/api/algo/trades")
@@ -1431,7 +1517,8 @@ def health():
         "mt5_connected": connector is not None and connector.is_connected if connector else False,
         "has_data": historical_data is not None,
         "has_strategy": current_strategy is not None,
-        "algo_running": algo_state["running"],
+        "algo_running": len(algo_instances) > 0,
+        "algo_count": len(algo_instances),
         "has_env_creds": bool(settings.MT5_LOGIN and settings.MT5_PASSWORD and settings.MT5_SERVER),
     }
 
@@ -1507,27 +1594,13 @@ async def ws_live(ws: WebSocket):
                 except Exception:
                     pass
 
-            # Algo status — every 2nd tick (~1s)
-            if tick_counter % 2 == 0 and algo_state["running"]:
+            # Algo status — every 2nd tick (~1s), scoped to subscribed symbol
+            if tick_counter % 2 == 0:
                 try:
-                    algo_data = {
-                        "type": "algo",
-                        "running": algo_state["running"],
-                        "symbol": algo_state["symbol"],
-                        "timeframe": algo_state["timeframe"],
-                        "strategy_name": algo_state["strategy_name"],
-                        "volume": algo_state["volume"],
-                        "in_position": algo_state["in_position"],
-                        "position_ticket": algo_state["position_ticket"],
-                        "trades_placed": algo_state["trades_placed"],
-                        "signals": algo_state["signals"][-20:],
-                        "current_price": algo_state["current_price"],
-                        "indicators": algo_state["indicators"],
-                        "entry_conditions": algo_state["entry_conditions"],
-                        "exit_conditions": algo_state["exit_conditions"],
-                        "last_check": algo_state["last_check"],
-                    }
-                    await ws.send_json(sanitize_for_json(algo_data))
+                    instance = algo_instances.get(subscribed_symbol)
+                    if instance and instance.state["running"]:
+                        algo_data = {"type": "algo", **_instance_to_dict(instance)}
+                        await ws.send_json(sanitize_for_json(algo_data))
                 except Exception:
                     pass
 
@@ -1578,7 +1651,7 @@ def _sse_event(event_type: str, data: dict) -> str:
 
 async def _sse_live_generator(request: Request, symbol: str, timeframe: str):
     """Async generator yielding SSE events for live market data."""
-    global connector, algo_state
+    global connector
     loop = asyncio.get_event_loop()
 
     if not connector or not connector.is_connected:
@@ -1621,28 +1694,13 @@ async def _sse_live_generator(request: Request, symbol: str, timeframe: str):
         except Exception:
             pass
 
-        # Algo status — every tick (reads in-memory, zero cost)
+        # Algo status — every tick, scoped to this symbol's instance
         try:
-            algo_data = {
-                "running": algo_state["running"],
-                "symbol": algo_state["symbol"],
-                "timeframe": algo_state["timeframe"],
-                "strategy_name": algo_state["strategy_name"],
-                "strategy_id": algo_state.get("strategy_id"),
-                "volume": algo_state["volume"],
-                "in_position": algo_state["in_position"],
-                "position_ticket": algo_state["position_ticket"],
-                "trades_placed": algo_state["trades_placed"],
-                "signals": algo_state["signals"][-20:],
-                "current_price": algo_state["current_price"],
-                "indicators": algo_state["indicators"],
-                "entry_conditions": algo_state["entry_conditions"],
-                "exit_conditions": algo_state["exit_conditions"],
-                "last_check": algo_state["last_check"],
-                "trade_state": algo_state.get("trade_state"),
-                "active_rule_index": algo_state.get("active_rule_index", 0),
-            }
-            yield _sse_event("algo", algo_data)
+            instance = algo_instances.get(symbol)
+            if instance and instance.state["running"]:
+                yield _sse_event("algo", _instance_to_dict(instance))
+            else:
+                yield _sse_event("algo", {"running": False, "symbol": symbol})
         except Exception:
             pass
 
@@ -1692,7 +1750,7 @@ async def sse_live(request: Request, symbol: str = "EURUSDm", timeframe: str = "
 
 async def _sse_ticker_generator(request: Request, symbol: str):
     """Lightweight SSE: just price + account every ~1s for sidebar ticker."""
-    global connector, algo_state
+    global connector
     loop = asyncio.get_event_loop()
 
     if not connector or not connector.is_connected:
@@ -1726,13 +1784,26 @@ async def _sse_ticker_generator(request: Request, symbol: str):
         except Exception:
             pass
 
-        # Algo status — every tick (in-memory read)
+        # Algo status — every tick (in-memory read, all instances)
+        running_instances = [
+            {
+                "symbol": inst.state["symbol"],
+                "strategy_name": inst.state["strategy_name"],
+                "trades_placed": inst.state["trades_placed"],
+                "in_position": inst.state["in_position"],
+            }
+            for inst in algo_instances.values()
+            if inst.state["running"]
+        ]
+        first = running_instances[0] if running_instances else None
         yield _sse_event("algo_status", {
-            "running": algo_state["running"],
-            "symbol": algo_state["symbol"],
-            "strategy_name": algo_state["strategy_name"],
-            "trades_placed": algo_state["trades_placed"],
-            "in_position": algo_state["in_position"],
+            "running": len(running_instances) > 0,
+            "instances": running_instances,
+            # Legacy flat fields (first instance)
+            "symbol": first["symbol"] if first else None,
+            "strategy_name": first["strategy_name"] if first else None,
+            "trades_placed": sum(i["trades_placed"] for i in running_instances),
+            "in_position": any(i["in_position"] for i in running_instances),
         })
 
         if tick_counter % 60 == 0:

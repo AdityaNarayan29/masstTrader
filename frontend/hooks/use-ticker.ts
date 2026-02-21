@@ -14,12 +14,20 @@ interface TickerPrice {
   market_open?: boolean;
 }
 
+interface AlgoTickerInstance {
+  symbol: string;
+  strategy_name: string | null;
+  trades_placed: number;
+  in_position: boolean;
+}
+
 interface AlgoTicker {
   running: boolean;
   symbol: string | null;
   strategy_name: string | null;
   trades_placed: number;
   in_position: boolean;
+  instances?: AlgoTickerInstance[];
 }
 
 export function useTicker(symbol: string) {

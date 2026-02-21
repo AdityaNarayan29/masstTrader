@@ -406,12 +406,18 @@ def get_algo_trade(trade_id: str) -> dict | None:
     return _row_to_algo_trade(row) if row else None
 
 
-def get_open_algo_trade() -> dict | None:
-    """Get the currently-open algo trade (if any)."""
+def get_open_algo_trade(symbol: str = None) -> dict | None:
+    """Get the currently-open algo trade, optionally scoped by symbol."""
     conn = _get_connection()
-    row = conn.execute(
-        "SELECT * FROM algo_trades WHERE status = 'open' ORDER BY created_at DESC LIMIT 1"
-    ).fetchone()
+    if symbol:
+        row = conn.execute(
+            "SELECT * FROM algo_trades WHERE status = 'open' AND symbol = ? ORDER BY created_at DESC LIMIT 1",
+            (symbol,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT * FROM algo_trades WHERE status = 'open' ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
     conn.close()
     return _row_to_algo_trade(row) if row else None
 

@@ -261,7 +261,7 @@ export const api = {
 
   algo: {
     start: (symbol: string, timeframe: string, volume: number, strategyId?: string) =>
-      request<{ success: boolean; message: string }>("/api/algo/start", {
+      request<{ success: boolean; message: string; symbol: string }>("/api/algo/start", {
         method: "POST",
         body: JSON.stringify({
           symbol,
@@ -270,9 +270,12 @@ export const api = {
           ...(strategyId ? { strategy_id: strategyId } : {}),
         }),
       }),
-    stop: () =>
-      request<{ success: boolean; message: string }>("/api/algo/stop", { method: "POST" }),
-    status: () =>
+    stop: (symbol?: string) =>
+      request<{ success: boolean; message: string }>(
+        `/api/algo/stop${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}`,
+        { method: "POST" },
+      ),
+    status: (symbol?: string) =>
       request<{
         running: boolean;
         symbol: string | null;
@@ -303,7 +306,20 @@ export const api = {
           sl_atr_mult: number | null; tp_atr_mult: number | null;
         } | null;
         active_rule_index: number;
-      }>("/api/algo/status"),
+        instances?: Record<string, {
+          running: boolean; symbol: string; timeframe: string;
+          strategy_name: string | null; strategy_id: string | null;
+          volume: number; in_position: boolean; position_ticket: number | null;
+          trades_placed: number; signals: Array<{ time: string; action: string; detail: string }>;
+          current_price: { bid: number; ask: number; spread: number } | null;
+          indicators: Record<string, number | string | null>;
+          entry_conditions: Array<{ description: string; indicator: string; parameter: string; operator: string; value: number | string; passed: boolean }>;
+          exit_conditions: Array<{ description: string; indicator: string; parameter: string; operator: string; value: number | string; passed: boolean }>;
+          last_check: string | null;
+          trade_state: { ticket: number; entry_price: number; sl_price: number | null; tp_price: number | null; direction: string; volume: number; entry_time: string; bars_since_entry: number; atr_at_entry: number | null; sl_atr_mult: number | null; tp_atr_mult: number | null } | null;
+          active_rule_index: number;
+        }>;
+      }>(`/api/algo/status${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}`),
     trades: (strategyId?: string, symbol?: string, limit?: number) =>
       request<Array<{
         id: string;
