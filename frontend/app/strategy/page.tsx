@@ -436,7 +436,23 @@ export default function StrategyPage() {
               <CardHeader>
                 <div className="flex items-center justify-between gap-4">
                   <CardTitle className="text-base">{rule.name}</CardTitle>
-                  <Badge variant="outline">{rule.timeframe}</Badge>
+                  <select
+                    className="h-7 rounded border bg-background px-1.5 text-xs font-medium"
+                    value={rule.timeframe}
+                    onChange={(e) => {
+                      const updated = { ...strategy!, rules: strategy!.rules.map((r, ri) =>
+                        ri === i ? { ...r, timeframe: e.target.value } : r
+                      )};
+                      setStrategy(updated);
+                    }}
+                  >
+                    {["M1","M5","M15","M30","H1","H4","D1","W1"].map((tf) => (
+                      <option key={tf} value={tf}>{tf}</option>
+                    ))}
+                    {!["M1","M5","M15","M30","H1","H4","D1","W1"].includes(rule.timeframe) && (
+                      <option value={rule.timeframe}>{rule.timeframe}</option>
+                    )}
+                  </select>
                 </div>
                 <CardDescription>{rule.description}</CardDescription>
               </CardHeader>
