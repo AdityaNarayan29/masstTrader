@@ -23,6 +23,7 @@ const NAV = [
   { href: "/strategy", label: "Strategy Builder", icon: "brain" },
   { href: "/backtest", label: "Backtester", icon: "chart" },
   { href: "/analyzer", label: "Trade Analyzer", icon: "search" },
+  { href: "/ml", label: "ML Dashboard", icon: "cpu" },
   { href: "/tutor", label: "AI Tutor", icon: "book" },
 ];
 
@@ -55,6 +56,12 @@ const icons: Record<string, React.ReactNode> = {
   bot: (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5M14.25 3.104c.251.023.501.05.75.082M19 14.5l-1.5 4.5H6.5L5 14.5m14 0H5" />
+    </svg>
+  ),
+  cpu: (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M3 9h2m-2 6h2m14-6h2m-2 6h2M7 7h10v10H7V7z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 10h4v4h-4v-4z" />
     </svg>
   ),
   book: (

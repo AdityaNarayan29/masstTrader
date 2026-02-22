@@ -127,10 +127,7 @@ export default function AlgoPage() {
 
   // ML Confidence Filter state
   type MLStatus = Awaited<ReturnType<typeof api.ml.status>>;
-  type MLTrainResult = Awaited<ReturnType<typeof api.ml.train>>;
   const [mlStatus, setMlStatus] = useState<MLStatus | null>(null);
-  const [mlTraining, setMlTraining] = useState(false);
-  const [mlTrainResult, setMlTrainResult] = useState<MLTrainResult | null>(null);
 
   const stream = useLiveStream(symbol || "EURUSDm", timeframe);
   const liveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1814,151 +1811,25 @@ export default function AlgoPage() {
           </CardContent>
         </Card>
       )}
-      {/* ML Confidence Filter */}
+      {/* ML Confidence Filter — compact status + link */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">ML Confidence Filter</CardTitle>
-          <CardDescription>
-            Machine learning model that scores trade signals and blocks low-probability entries
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Model status */}
-          <div className="flex flex-wrap gap-4 items-center text-sm">
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">Model:</span>
-              <Badge variant={mlStatus?.model_loaded ? "default" : "outline"}>
-                {mlStatus?.model_loaded ? "Loaded" : mlStatus?.model_exists ? "On disk" : "Not trained"}
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium">ML Confidence Filter</span>
+              <Badge variant={mlStatus?.model_loaded ? "default" : "secondary"} className="text-[10px]">
+                {mlStatus?.model_loaded ? "Active" : mlStatus?.model_exists ? "On Disk" : "Not Trained"}
               </Badge>
-            </div>
-            {mlStatus?.model_trained_at && (
-              <span className="text-xs text-muted-foreground">
-                Trained: {new Date(mlStatus.model_trained_at).toLocaleString()}
-              </span>
-            )}
-            {mlStatus?.model_file_size_kb && (
-              <span className="text-xs text-muted-foreground">
-                {mlStatus.model_file_size_kb} KB
-              </span>
-            )}
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">Threshold:</span>
-              <span className="font-mono font-bold">{((mlStatus?.threshold ?? 0.55) * 100).toFixed(0)}%</span>
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              onClick={async () => {
-                setMlTraining(true);
-                setMlTrainResult(null);
-                try {
-                  const result = await api.ml.train();
-                  setMlTrainResult(result);
-                  // Refresh status
-                  api.ml.status().then(setMlStatus).catch(() => {});
-                } catch (e) {
-                  setMlTrainResult({ success: false, error: (e as Error).message });
-                } finally {
-                  setMlTraining(false);
-                }
-              }}
-              disabled={mlTraining}
-            >
-              {mlTraining ? (
-                <>
-                  <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                  Training...
-                </>
-              ) : (
-                "Train Model"
-              )}
-            </Button>
-            {mlStatus?.model_exists && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => api.ml.reload().then((s) => setMlStatus(s as MLStatus)).catch(() => {})}
-              >
-                Reload
-              </Button>
-            )}
-            <div className="flex items-center gap-2 ml-auto">
-              <Label className="text-xs">Threshold %</Label>
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                step={5}
-                className="w-20 h-8 text-xs font-mono"
-                defaultValue={((mlStatus?.threshold ?? 0.55) * 100).toFixed(0)}
-                onBlur={(e) => {
-                  const val = Math.min(100, Math.max(0, Number(e.target.value))) / 100;
-                  api.ml.setThreshold(val).then(() => {
-                    api.ml.status().then(setMlStatus).catch(() => {});
-                  }).catch(() => {});
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Training results */}
-          {mlTrainResult && (
-            <div className={`rounded-lg border p-3 text-sm ${mlTrainResult.success ? "border-green-500/30 bg-green-500/5" : "border-red-500/30 bg-red-500/5"}`}>
-              {mlTrainResult.success ? (
-                <div className="space-y-2">
-                  <p className="font-medium text-green-600">
-                    Model trained — {mlTrainResult.model_type} on {mlTrainResult.total_samples} samples
-                  </p>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                    <div>
-                      <span className="text-muted-foreground">Accuracy: </span>
-                      <span className="font-mono font-bold">{((mlTrainResult.accuracy ?? 0) * 100).toFixed(1)}%</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Precision: </span>
-                      <span className="font-mono font-bold">{((mlTrainResult.precision ?? 0) * 100).toFixed(1)}%</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Recall: </span>
-                      <span className="font-mono font-bold">{((mlTrainResult.recall ?? 0) * 100).toFixed(1)}%</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">F1: </span>
-                      <span className="font-mono font-bold">{((mlTrainResult.f1_score ?? 0) * 100).toFixed(1)}%</span>
-                    </div>
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Sources: {mlTrainResult.backtest_samples} backtest + {mlTrainResult.stored_backtest_samples} stored + {mlTrainResult.live_samples} live
-                    {" | "}Win rate in data: {mlTrainResult.win_rate_in_data}%
-                  </div>
-                  {mlTrainResult.feature_importance && Object.keys(mlTrainResult.feature_importance).length > 0 && (
-                    <div className="space-y-1">
-                      <p className="text-xs font-medium text-muted-foreground">Feature Importance</p>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-1">
-                        {Object.entries(mlTrainResult.feature_importance)
-                          .sort(([, a], [, b]) => b - a)
-                          .map(([feat, imp]) => (
-                            <div key={feat} className="flex items-center gap-1 text-[10px] font-mono">
-                              <div
-                                className="h-1.5 rounded-full bg-primary"
-                                style={{ width: `${Math.max(4, imp * 200)}px` }}
-                              />
-                              <span className="text-muted-foreground truncate">{feat}</span>
-                              <span className="ml-auto">{(imp * 100).toFixed(1)}%</span>
-                            </div>
-                          ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className="text-red-500">{mlTrainResult.error}</p>
+              {mlStatus?.model_loaded && (
+                <span className="text-xs text-muted-foreground font-mono">
+                  Threshold: {((mlStatus?.threshold ?? 0.55) * 100).toFixed(0)}%
+                </span>
               )}
             </div>
-          )}
+            <a href="/ml">
+              <Button size="sm" variant="outline">ML Dashboard</Button>
+            </a>
+          </div>
         </CardContent>
       </Card>
     </div>

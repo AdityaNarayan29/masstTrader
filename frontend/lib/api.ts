@@ -415,5 +415,63 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ threshold }),
       }),
+    lstmStatus: () =>
+      request<{
+        model_exists: boolean; model_loaded: boolean; model_path: string;
+        sequence_length: number; feature_count: number; features: string[];
+        model_file_size_kb?: number; model_trained_at?: string;
+      }>("/api/ml/lstm-status"),
+    trainLstm: (symbol?: string, timeframe?: string, bars?: number) =>
+      request<{
+        success: boolean; error?: string; model_path?: string;
+        symbol?: string; timeframe?: string;
+        total_samples?: number; train_size?: number; test_size?: number;
+        features_used?: number; sequence_length?: number;
+        up_rate_in_data?: number; accuracy?: number; precision?: number;
+        recall?: number; f1_score?: number; val_loss?: number;
+        epochs_trained?: number; trained_at?: string;
+      }>("/api/ml/train-lstm", {
+        method: "POST",
+        body: JSON.stringify({
+          symbol: symbol || "EURUSDm",
+          timeframe: timeframe || "1h",
+          bars: bars || 5000,
+        }),
+      }, 300000),
+    lstmPredict: (symbol?: string, timeframe?: string) =>
+      request<{
+        direction: string; confidence: number; model_loaded: boolean;
+      }>("/api/ml/lstm-predict", {
+        method: "POST",
+        body: JSON.stringify({
+          symbol: symbol || "EURUSDm",
+          timeframe: timeframe || "1h",
+        }),
+      }),
+    lstmReload: () =>
+      request<Record<string, unknown>>("/api/ml/lstm-reload", { method: "POST" }),
+    trainingHistory: (modelType?: string, limit?: number) =>
+      request<Array<{
+        id: string; model_type: string; trained_at: string;
+        total_samples: number; accuracy: number | null;
+        precision_score: number | null; recall: number | null;
+        f1_score: number | null; val_loss: number | null;
+        epochs: number | null;
+        feature_importance: Record<string, number>;
+        extra_metrics: Record<string, unknown>;
+      }>>(`/api/ml/training-history?${new URLSearchParams({
+        ...(modelType ? { model_type: modelType } : {}),
+        ...(limit ? { limit: String(limit) } : {}),
+      }).toString()}`),
+    tradeAnalysis: () =>
+      request<{
+        total_trades: number; ml_trades: number;
+        overall_win_rate: number; ml_win_rate: number;
+        confidence_buckets: Array<{
+          label: string; count: number; wins: number; win_rate: number;
+        }>;
+        lstm_trades: number; lstm_accuracy: number | null;
+        avg_ml_confidence: number | null;
+      }>("/api/ml/trade-analysis"),
   },
 };

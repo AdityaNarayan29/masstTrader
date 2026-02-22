@@ -14,10 +14,10 @@
 │                   Next.js 16 + TypeScript                        │
 │                   Tailwind CSS + shadcn/ui                       │
 │                                                                  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────┐│
-│  │Connection│ │ Strategy │ │Backtester│ │ Analyzer │ │  Tutor ││
-│  │  Page    │ │ Builder  │ │  Page    │ │   Page   │ │  Page  ││
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └────────┘│
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────┐ ┌──────┐│
+│  │Connection│ │ Strategy │ │Backtester│ │ Analyzer │ │ ML │ │Tutor ││
+│  │  Page    │ │ Builder  │ │  Page    │ │   Page   │ │Dash│ │ Page ││
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └────┘ └──────┘│
 │                                                                  │
 │  lib/api.ts ── Typed API client with timeout + error handling    │
 └──────────────────────────┬──────────────────────────────────────┘
@@ -36,6 +36,7 @@
 │  │  /api/backtest/* Strategy backtesting + AI explanation   │    │
 │  │  /api/analyze/*  Trade analysis vs strategy              │    │
 │  │  /api/tutor/*    Personalized AI lessons                 │    │
+│  │  /api/ml/*       ML training, prediction, dashboard     │    │
 │  │  /api/health     System status check                     │    │
 │  │                                                          │    │
 │  └──────────┬──────────────┬──────────────┬────────────────┘    │
@@ -87,6 +88,77 @@
                     Returns: markdown-formatted lesson
 ```
 
+## ML Pipeline
+
+### XGBoost Confidence Filter (`ml_filter.py` + `trainer.py`)
+```
+Training Data Sources:
+  1. Fresh backtests (run all strategies through backtester)
+  2. Stored backtest results (from DB)
+  3. Live algo trade outcomes (closed trades with P&L)
+
+Feature Engineering (13 features):
+  RSI_14, MACD_histogram, MACD_line, BB_width, ATR_14, ADX_14,
+  Stoch_K, Stoch_D, Volume_ratio, EMA_9_21_spread,
+  close_vs_BB_middle, close_vs_EMA_50, direction
+
+Pipeline:
+  Collect samples → NaN cleaning → Train/test split (80/20)
+  → XGBoost classifier → Evaluate → Save .joblib → Reload into memory
+
+Runtime (Algo Loop):
+  Entry conditions met → extract_features(indicators) → predict_proba()
+  → confidence < threshold (55%) → BLOCK trade
+  → confidence >= threshold → ALLOW trade + log score
+```
+
+### LSTM Price Predictor (`lstm_predictor.py`)
+```
+Architecture:
+  Input: 50 candles × 24 indicator features
+  → LSTM(64, return_sequences=True) → Dropout(0.2)
+  → LSTM(32) → Dropout(0.2)
+  → Dense(16, relu) → Dense(1, sigmoid)
+
+Training:
+  Historical candles → add_all_indicators() → StandardScaler
+  → Sliding window sequences → Binary labels (close[i+1] > close[i])
+  → Train with EarlyStopping(patience=5) → Save .keras + scaler
+
+Prediction:
+  Latest 50 candles → Scale → Predict → probability
+  → >= 0.55: "up" | <= 0.45: "down" | else: "neutral"
+```
+
+### ML Data Flow
+```
+                    ┌─────────────┐
+                    │  MT5 Broker  │
+                    └──────┬──────┘
+                           │ Historical candles
+                           ▼
+                    ┌──────────────┐
+                    │  Indicators  │──→ 24 features (LSTM)
+                    │  (ta library)│──→ 13 features (XGBoost)
+                    └──────┬───────┘
+                           │
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+       ┌────────────┐ ┌──────────┐ ┌────────────┐
+       │  XGBoost   │ │   LSTM   │ │  Training  │
+       │  Filter    │ │ Predictor│ │  History   │
+       │ (gate)     │ │ (info)   │ │  (SQLite)  │
+       └─────┬──────┘ └────┬─────┘ └─────┬──────┘
+             │             │              │
+             ▼             ▼              ▼
+       ┌──────────────────────────────────────┐
+       │           ML Dashboard               │
+       │  Accuracy charts, training controls, │
+       │  confidence distribution, trade      │
+       │  outcome analysis                    │
+       └──────────────────────────────────────┘
+```
+
 ## Technical Indicators (computed on data fetch)
 
 | Indicator | Parameters | Library |
@@ -110,9 +182,11 @@
 | Backend | FastAPI + Uvicorn | REST API server |
 | Broker Connection | MetaTrader5 Python (native IPC) | Direct MT5 terminal communication |
 | AI/LLM | Groq (Llama 3.3 70B) — free | Strategy parsing, analysis, tutoring |
+| ML | XGBoost (scikit-learn) | Trade confidence filter |
+| Deep Learning | TensorFlow/Keras LSTM | Price direction prediction |
 | Indicators | `ta` library + pandas | Technical analysis calculations |
 | Hosting | AWS EC2 Windows (backend) | MT5 requires Windows |
-| Data | pandas DataFrames (in-memory) | Candle + indicator storage |
+| Data | SQLite + pandas DataFrames | Persistence + in-memory analysis |
 
 ## AI Provider Support
 

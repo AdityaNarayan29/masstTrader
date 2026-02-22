@@ -224,6 +224,27 @@ def train_model(connector=None, bars=2000, model_path=None) -> dict:
     # Reload into memory
     reload_model(path)
 
+    # Save training run to DB
+    try:
+        from backend.database import save_training_run
+        save_training_run({
+            "model_type": model_type.lower(),
+            "total_samples": len(all_samples),
+            "accuracy": round(accuracy, 4),
+            "precision_score": round(precision, 4),
+            "recall": round(recall, 4),
+            "f1_score": round(f1, 4),
+            "extra_metrics": {
+                "backtest_samples": len(backtest_samples),
+                "stored_backtest_samples": len(stored_samples),
+                "live_samples": len(live_samples),
+                "win_rate_in_data": round(float(np.mean(y)) * 100, 1),
+                "feature_importance": importance,
+            },
+        })
+    except Exception as e:
+        logger.warning("Failed to save training run: %s", e)
+
     report = {
         "success": True,
         "model_type": model_type,

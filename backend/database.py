@@ -81,11 +81,32 @@ def init_db():
             updated_at        TEXT NOT NULL
         );
     """)
-    # Migration: add ml_confidence to existing DBs
-    try:
-        conn.execute("ALTER TABLE algo_trades ADD COLUMN ml_confidence REAL")
-    except Exception:
-        pass  # Column already exists
+        CREATE TABLE IF NOT EXISTS ml_training_runs (
+            id                TEXT PRIMARY KEY,
+            model_type        TEXT NOT NULL,
+            trained_at        TEXT NOT NULL,
+            total_samples     INTEGER NOT NULL DEFAULT 0,
+            accuracy          REAL,
+            precision_score   REAL,
+            recall            REAL,
+            f1_score          REAL,
+            val_loss          REAL,
+            epochs            INTEGER,
+            feature_importance TEXT NOT NULL DEFAULT '{}',
+            extra_metrics     TEXT NOT NULL DEFAULT '{}'
+        );
+    """)
+    # Migrations: add columns to existing DBs (idempotent)
+    migrations = [
+        "ALTER TABLE algo_trades ADD COLUMN ml_confidence REAL",
+        "ALTER TABLE algo_trades ADD COLUMN lstm_direction TEXT",
+        "ALTER TABLE algo_trades ADD COLUMN lstm_confidence REAL",
+    ]
+    for sql in migrations:
+        try:
+            conn.execute(sql)
+        except Exception:
+            pass  # Column already exists
     conn.close()
 
 
@@ -313,6 +334,8 @@ def _row_to_algo_trade(row: sqlite3.Row) -> dict:
         "net_pnl": row["net_pnl"],
         "mt5_ticket": row["mt5_ticket"],
         "ml_confidence": row["ml_confidence"] if "ml_confidence" in row.keys() else None,
+        "lstm_direction": row["lstm_direction"] if "lstm_direction" in row.keys() else None,
+        "lstm_confidence": row["lstm_confidence"] if "lstm_confidence" in row.keys() else None,
         "status": row["status"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -331,8 +354,9 @@ def save_algo_trade(trade: dict) -> dict:
             entry_price, entry_time, sl_price, tp_price,
             sl_atr_mult, tp_atr_mult, atr_at_entry,
             entry_indicators, entry_conditions,
-            mt5_ticket, ml_confidence, status, created_at, updated_at)
-           VALUES (?,?,?,?,?, ?,?,?,?, ?,?,?,?, ?,?,?, ?,?, ?,?,?,?,?)""",
+            mt5_ticket, ml_confidence, lstm_direction, lstm_confidence,
+            status, created_at, updated_at)
+           VALUES (?,?,?,?,?, ?,?,?,?, ?,?,?,?, ?,?,?, ?,?, ?,?,?,?,?,?,?)""",
         (
             trade_id,
             trade.get("strategy_id"),
@@ -354,6 +378,8 @@ def save_algo_trade(trade: dict) -> dict:
             json.dumps(trade.get("entry_conditions", [])),
             trade.get("mt5_ticket"),
             trade.get("ml_confidence"),
+            trade.get("lstm_direction"),
+            trade.get("lstm_confidence"),
             "open",
             now,
             now,
@@ -482,3 +508,69 @@ def get_algo_trade_stats(
         "worst_trade": round(min(pnls), 2),
         "exit_reasons": reasons,
     }
+
+
+# ── ML Training Runs CRUD ──────────────────────────────────────
+
+
+def save_training_run(run: dict) -> dict:
+    """Save an ML training run record."""
+    now = datetime.now(timezone.utc).isoformat()
+    run_id = str(uuid.uuid4())
+    conn = _get_connection()
+    conn.execute(
+        """INSERT INTO ml_training_runs
+           (id, model_type, trained_at, total_samples, accuracy, precision_score,
+            recall, f1_score, val_loss, epochs, feature_importance, extra_metrics)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            run_id,
+            run.get("model_type", "unknown"),
+            now,
+            run.get("total_samples", 0),
+            run.get("accuracy"),
+            run.get("precision_score"),
+            run.get("recall"),
+            run.get("f1_score"),
+            run.get("val_loss"),
+            run.get("epochs"),
+            json.dumps(run.get("feature_importance", {})),
+            json.dumps(run.get("extra_metrics", {})),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return {**run, "id": run_id, "trained_at": now}
+
+
+def list_training_runs(model_type: str = None, limit: int = 50) -> list[dict]:
+    """List ML training runs, optionally filtered by model type."""
+    conn = _get_connection()
+    if model_type:
+        rows = conn.execute(
+            "SELECT * FROM ml_training_runs WHERE model_type = ? ORDER BY trained_at DESC LIMIT ?",
+            (model_type, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM ml_training_runs ORDER BY trained_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    conn.close()
+    return [
+        {
+            "id": r["id"],
+            "model_type": r["model_type"],
+            "trained_at": r["trained_at"],
+            "total_samples": r["total_samples"],
+            "accuracy": r["accuracy"],
+            "precision_score": r["precision_score"],
+            "recall": r["recall"],
+            "f1_score": r["f1_score"],
+            "val_loss": r["val_loss"],
+            "epochs": r["epochs"],
+            "feature_importance": json.loads(r["feature_importance"]),
+            "extra_metrics": json.loads(r["extra_metrics"]),
+        }
+        for r in rows
+    ]

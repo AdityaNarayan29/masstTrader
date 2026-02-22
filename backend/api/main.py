@@ -46,6 +46,14 @@ from backend.database import (
     get_algo_trade, get_open_algo_trade, list_algo_trades, get_algo_trade_stats,
 )
 from backend.core.ml_filter import predict_confidence, get_model_status, reload_model, load_model as load_ml_model
+from backend.core.lstm_predictor import (
+    predict_direction as lstm_predict_direction,
+    get_lstm_status,
+    load_lstm_model,
+    reload_lstm_model,
+    train_lstm,
+)
+from backend.database import list_training_runs, save_training_run
 from config.settings import settings
 
 app = FastAPI(title="MasstTrader API", version="1.0.0")
@@ -53,8 +61,9 @@ app = FastAPI(title="MasstTrader API", version="1.0.0")
 # Initialize SQLite database
 init_db()
 
-# Pre-load ML confidence model (if exists)
+# Pre-load ML models (if exist)
 load_ml_model()
+load_lstm_model()
 
 # ── CORS — restrict to known origins ──
 _cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
@@ -1173,6 +1182,17 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                             _add_signal(state, "ml_pass",
                                 f"ML confidence {ml_result['score']:.0%} — proceeding with entry")
 
+                    # ── LSTM Direction Prediction (informational) ──
+                    lstm_result = {"direction": "neutral", "confidence": 0.0, "model_loaded": False}
+                    if all_entry and len(entry_conditions) > 0 and ml_pass:
+                        try:
+                            lstm_result = lstm_predict_direction(df)
+                            if lstm_result.get("model_loaded"):
+                                _add_signal(state, "lstm",
+                                    f"LSTM prediction: {lstm_result['direction']} ({lstm_result['confidence']:.0%})")
+                        except Exception as e:
+                            _add_signal(state, "warn", f"LSTM prediction failed: {e}")
+
                     if all_entry and len(entry_conditions) > 0 and ml_pass:
                         try:
                             # Calculate ATR-based or pip-based SL/TP
@@ -1265,6 +1285,8 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                                         "entry_conditions": entry_cond_results,
                                         "mt5_ticket": result.get("order_id"),
                                         "ml_confidence": ml_result.get("score") if ml_result.get("model_loaded") else None,
+                                        "lstm_direction": lstm_result.get("direction") if lstm_result.get("model_loaded") else None,
+                                        "lstm_confidence": lstm_result.get("confidence") if lstm_result.get("model_loaded") else None,
                                     }))
                                     state["current_algo_trade_id"] = db_trade["id"]
                                 except Exception as e:
@@ -1567,6 +1589,140 @@ def ml_set_threshold(req: MLThresholdRequest):
     from backend.core import ml_filter
     ml_filter.DEFAULT_THRESHOLD = req.threshold
     return {"threshold": req.threshold}
+
+
+# ──────────────────────────────────────
+# LSTM PRICE PREDICTOR
+# ──────────────────────────────────────
+
+class LSTMTrainRequest(BaseModel):
+    symbol: str = "EURUSDm"
+    timeframe: str = "1h"
+    bars: int = 5000
+
+
+class LSTMPredictRequest(BaseModel):
+    symbol: str = "EURUSDm"
+    timeframe: str = "1h"
+
+
+@app.get("/api/ml/lstm-status")
+def lstm_status_endpoint():
+    """Get LSTM model status and metadata."""
+    return get_lstm_status()
+
+
+@app.post("/api/ml/train-lstm")
+def train_lstm_endpoint(req: LSTMTrainRequest):
+    """Train the LSTM price direction predictor."""
+    result = train_lstm(
+        connector=connector,
+        symbol=req.symbol,
+        timeframe=req.timeframe,
+        bars=req.bars,
+    )
+    return result
+
+
+@app.post("/api/ml/lstm-predict")
+def lstm_predict_endpoint(req: LSTMPredictRequest):
+    """Run LSTM prediction on current candle data."""
+    if not connector or not connector.is_connected:
+        raise HTTPException(status_code=400, detail="MT5 not connected")
+    try:
+        from backend.core.indicators import add_all_indicators
+        connector.select_symbol(req.symbol)
+        df = connector.get_history(req.symbol, req.timeframe, 100)
+        df = add_all_indicators(df)
+        df = df.dropna().reset_index()
+        result = lstm_predict_direction(df)
+        return result
+    except Exception as e:
+        logger.error("LSTM predict failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
+
+
+@app.post("/api/ml/lstm-reload")
+def lstm_reload_endpoint():
+    """Force reload LSTM model from disk."""
+    reload_lstm_model()
+    return get_lstm_status()
+
+
+# ──────────────────────────────────────
+# ML DASHBOARD DATA
+# ──────────────────────────────────────
+
+@app.get("/api/ml/training-history")
+def ml_training_history(model_type: str = None, limit: int = 50):
+    """Get training run history for dashboard charts."""
+    return list_training_runs(model_type=model_type, limit=limit)
+
+
+@app.get("/api/ml/trade-analysis")
+def ml_trade_analysis():
+    """Aggregated ML trade outcomes — win rates by confidence bucket, ML vs overall."""
+    trades = list_algo_trades(limit=10000)
+    closed = [t for t in trades if t["status"] == "closed" and t["net_pnl"] is not None]
+
+    if not closed:
+        return {
+            "total_trades": 0,
+            "ml_trades": 0,
+            "overall_win_rate": 0.0,
+            "ml_win_rate": 0.0,
+            "confidence_buckets": [],
+            "lstm_accuracy": None,
+        }
+
+    # Overall stats
+    wins = [t for t in closed if t["net_pnl"] > 0]
+    overall_win_rate = round(len(wins) / len(closed) * 100, 1) if closed else 0.0
+
+    # ML-scored trades
+    ml_trades = [t for t in closed if t.get("ml_confidence") is not None]
+    ml_wins = [t for t in ml_trades if t["net_pnl"] > 0]
+    ml_win_rate = round(len(ml_wins) / len(ml_trades) * 100, 1) if ml_trades else 0.0
+
+    # Confidence distribution buckets
+    buckets = [
+        {"label": "0-20%", "min": 0.0, "max": 0.2},
+        {"label": "20-40%", "min": 0.2, "max": 0.4},
+        {"label": "40-60%", "min": 0.4, "max": 0.6},
+        {"label": "60-80%", "min": 0.6, "max": 0.8},
+        {"label": "80-100%", "min": 0.8, "max": 1.01},
+    ]
+    confidence_buckets = []
+    for b in buckets:
+        bucket_trades = [t for t in ml_trades if b["min"] <= (t["ml_confidence"] or 0) < b["max"]]
+        bucket_wins = [t for t in bucket_trades if t["net_pnl"] > 0]
+        confidence_buckets.append({
+            "label": b["label"],
+            "count": len(bucket_trades),
+            "wins": len(bucket_wins),
+            "win_rate": round(len(bucket_wins) / len(bucket_trades) * 100, 1) if bucket_trades else 0.0,
+        })
+
+    # LSTM accuracy (how often LSTM direction matched actual outcome)
+    lstm_trades = [t for t in closed if t.get("lstm_direction") and t.get("lstm_direction") != "neutral"]
+    lstm_correct = 0
+    for t in lstm_trades:
+        if t["lstm_direction"] == "up" and t["net_pnl"] > 0:
+            lstm_correct += 1
+        elif t["lstm_direction"] == "down" and t["net_pnl"] < 0:
+            lstm_correct += 1
+    lstm_accuracy = round(lstm_correct / len(lstm_trades) * 100, 1) if lstm_trades else None
+
+    return {
+        "total_trades": len(closed),
+        "ml_trades": len(ml_trades),
+        "overall_win_rate": overall_win_rate,
+        "ml_win_rate": ml_win_rate,
+        "confidence_buckets": confidence_buckets,
+        "lstm_trades": len(lstm_trades),
+        "lstm_accuracy": lstm_accuracy,
+        "avg_ml_confidence": round(sum(t["ml_confidence"] for t in ml_trades) / len(ml_trades), 4) if ml_trades else None,
+    }
 
 
 @app.get("/api/health")

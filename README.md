@@ -13,7 +13,10 @@ MasstTrader connects to MetaTrader 5, lets you describe trading strategies in pl
 | **AI Strategy Builder** | Describe a strategy in natural language ("Buy when RSI < 30 and MACD crosses above signal") — AI converts it to structured, executable rules |
 | **Backtester** | Test strategies against real MT5 historical data with configurable timeframe, bars, balance, and risk. Candlestick chart with trade entry/exit markers, equity curve, and per-trade P/L breakdown |
 | **AI Trade Analyzer** | Submit a trade you took and AI compares it against your strategy rules, giving an alignment score (0-100) and detailed coaching feedback |
-| **Algo Trading** | Automatically execute trades based on your strategy rules with live condition monitoring, indicator tracking, and signal logging |
+| **Algo Trading** | Automatically execute trades based on your strategy rules with live condition monitoring, ML confidence gate, LSTM predictions, and signal logging |
+| **ML Confidence Filter** | XGBoost model scores trade signals 0-1 and blocks low-probability entries. Trained on backtest + live trade data |
+| **LSTM Price Predictor** | 2-layer LSTM deep learning model predicting next-candle price direction (up/down) using 24 technical indicator features |
+| **ML Dashboard** | Monitor model performance, trigger training, view accuracy charts, confidence distribution, and trade outcome analysis |
 | **AI Tutor** | Personalized trading lessons based on your experience level and the instruments you trade, with follow-up chat |
 | **Strategy Persistence** | Save, load, update, and delete strategies and backtests in a SQLite database |
 | **Light/Dark Theme** | Full light and dark theme support with emerald green accent, toggle from sidebar |
@@ -26,10 +29,10 @@ MasstTrader connects to MetaTrader 5, lets you describe trading strategies in pl
 │                          BROWSER (Client)                           │
 │                                                                     │
 │  Next.js 16 + TypeScript + Tailwind v4 + shadcn/ui                  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐   │
-│  │ Strategy │ │   Live   │ │ Backtest │ │ Analyzer │ │  Tutor   │   │
-│  │ Builder  │ │Dashboard │ │  Engine  │ │   (AI)   │ │  (AI)    │  │
-│  └────┬─────┘ └───┬──────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────┐ ┌──────┐│
+│  │ Strategy │ │   Live   │ │ Backtest │ │ Analyzer │ │   ML   │ │Tutor ││
+│  │ Builder  │ │Dashboard │ │  Engine  │ │   (AI)   │ │Dashbrd │ │ (AI) ││
+│  └────┬─────┘ └───┬──────┘ └────┬─────┘ └────┬─────┘ └───┬────┘ └──┬───┘│
 │       │       SSE ↓Stream       │            │            │        │
 │       │  ┌─────────────┐        │            │            │        │
 │       │  │EventSource  │        │            │            │        │
@@ -56,12 +59,12 @@ MasstTrader connects to MetaTrader 5, lets you describe trading strategies in pl
 │  ┌────────────────────────────────────────────────────────────────┐ │
 │  │                      FastAPI Application                       │ │
 │  │                                                                │ │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │ │
-│  │  │  REST    │  │   SSE    │  │  Algo    │  │  Backtest    │  │ │
-│  │  │Endpoints │  │Streaming │  │  Engine  │  │   Engine     │  │ │
-│  │  │(CRUD,MT5)│  │(live,tick│  │(bg thread│  │(indicators,  │  │ │
-│  │  │          │  │ er)      │  │ trading) │  │ evaluate)    │  │ │
-│  │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └──────┬───────┘  │ │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐│ │
+│  │  │  REST    │  │   SSE    │  │  Algo    │  │ Backtest │  │   ML   ││ │
+│  │  │Endpoints │  │Streaming │  │  Engine  │  │  Engine  │  │Pipeline││ │
+│  │  │(CRUD,MT5)│  │(live,tick│  │(bg thread│  │(indicators│  │XGBoost ││ │
+│  │  │          │  │ er)      │  │ +ML gate)│  │ evaluate)│  │ LSTM   ││ │
+│  │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └───┬────┘│ │
 │  │       │              │             │               │          │ │
 │  │  ─────┴──────────────┴─────────────┴───────────────┴────────  │ │
 │  │                    MT5 Connector (IPC)                         │ │
@@ -121,9 +124,11 @@ Algo Trading:
 - SQLite for persistence
 - Deployed on AWS EC2 Windows
 
-**AI**
+**AI + ML**
 - Groq (Llama 3.3 70B) — free, default provider
 - Also supports: Google Gemini, Anthropic Claude, OpenAI GPT-4o
+- XGBoost (scikit-learn) — trade confidence filter
+- TensorFlow/Keras LSTM — price direction predictor
 
 ## Project Structure
 
@@ -139,6 +144,7 @@ masstTrader/
 │   │   ├── strategy/           # AI strategy builder
 │   │   ├── backtest/           # Backtester with charts
 │   │   ├── analyzer/           # AI trade analyzer
+│   │   ├── ml/                 # ML performance dashboard
 │   │   └── tutor/              # AI tutor
 │   ├── components/
 │   │   ├── live-chart.tsx      # TradingView candlestick chart
@@ -156,7 +162,10 @@ masstTrader/
 │   │   └── main.py             # All FastAPI endpoints + SSE streaming
 │   ├── core/
 │   │   ├── backtester.py       # Backtesting engine
-│   │   └── indicators.py       # Technical indicators (ta library)
+│   │   ├── indicators.py       # Technical indicators (ta library)
+│   │   ├── ml_filter.py        # XGBoost confidence filter
+│   │   ├── lstm_predictor.py   # LSTM price direction predictor
+│   │   └── trainer.py          # ML training pipeline
 │   ├── services/
 │   │   └── ai_service.py       # LLM calls (Groq/Gemini/Claude/OpenAI)
 │   ├── models/
@@ -235,6 +244,15 @@ pnpm dev
 | POST | `/api/algo/stop` | Stop algo trading |
 | GET | `/api/algo/status` | Algo status with conditions + indicators |
 | POST | `/api/tutor/lesson` | AI-generated trading lesson |
+| GET | `/api/ml/status` | XGBoost model status |
+| POST | `/api/ml/train` | Train XGBoost confidence filter |
+| POST | `/api/ml/reload` | Reload ML model from disk |
+| POST | `/api/ml/threshold` | Set ML confidence threshold |
+| GET | `/api/ml/lstm-status` | LSTM model status |
+| POST | `/api/ml/train-lstm` | Train LSTM price predictor |
+| POST | `/api/ml/lstm-predict` | Run LSTM prediction |
+| GET | `/api/ml/training-history` | Training run metrics over time |
+| GET | `/api/ml/trade-analysis` | ML trade outcome analysis |
 | SSE | `/api/sse/live` | Full stream: prices, positions, account, candles, algo |
 | SSE | `/api/sse/ticker` | Lightweight stream: price + account for sidebar |
 

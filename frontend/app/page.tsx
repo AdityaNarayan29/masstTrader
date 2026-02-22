@@ -68,6 +68,18 @@ const FEATURES = [
     ),
   },
   {
+    href: "/ml",
+    title: "ML Dashboard",
+    desc: "XGBoost confidence filter and LSTM price predictor with training controls, accuracy charts, and trade outcome analysis.",
+    badge: "ML",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 3v2m6-2v2M9 19v2m6-2v2M3 9h2m-2 6h2m14-6h2m-2 6h2M7 7h10v10H7V7z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 10h4v4h-4v-4z" />
+      </svg>
+    ),
+  },
+  {
     href: "/tutor",
     title: "AI Trading Tutor",
     desc: "Personalized lessons based on your experience level and instruments. Ask follow-up questions in an interactive chat.",
@@ -84,8 +96,8 @@ const FLOW_STEPS = [
   { step: "1", title: "Connect", desc: "Link your MT5 broker account" },
   { step: "2", title: "Describe", desc: "Write your strategy in plain English" },
   { step: "3", title: "Backtest", desc: "Test on real historical data" },
-  { step: "4", title: "Trade", desc: "Go live with algo or manual trading" },
-  { step: "5", title: "Analyze", desc: "AI reviews your trades and teaches" },
+  { step: "4", title: "Trade", desc: "ML-filtered algo trading" },
+  { step: "5", title: "Learn", desc: "ML dashboard + AI coaching" },
 ];
 
 const TECH = [
@@ -94,10 +106,12 @@ const TECH = [
   "FastAPI",
   "MetaTrader 5",
   "Groq AI",
+  "XGBoost",
+  "TensorFlow",
+  "LSTM",
   "TradingView Charts",
   "Tailwind CSS",
   "shadcn/ui",
-  "WebSocket",
   "SQLite",
 ];
 
@@ -154,8 +168,8 @@ export default function Home() {
 
           <div className="grid grid-cols-2 sm:flex justify-center items-center gap-4 sm:gap-8 pt-8 text-center">
             <div>
-              <p className="text-2xl font-bold font-mono text-primary">6</p>
-              <p className="text-[11px] text-muted-foreground">AI Features</p>
+              <p className="text-2xl font-bold font-mono text-primary">8</p>
+              <p className="text-[11px] text-muted-foreground">AI + ML Features</p>
             </div>
             <div className="hidden sm:block h-8 w-px bg-border" />
             <div>
@@ -305,8 +319,8 @@ export default function Home() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">AI Layer</CardTitle>
-              <CardDescription className="text-xs">Multi-provider LLM support</CardDescription>
+              <CardTitle className="text-sm">AI + ML Layer</CardTitle>
+              <CardDescription className="text-xs">LLM + Machine Learning models</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <div className="flex items-center gap-2">
@@ -315,15 +329,15 @@ export default function Home() {
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-purple-500" />
-                <span>Strategy parsing (NL &rarr; rules)</span>
+                <span>XGBoost confidence filter</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-purple-500" />
-                <span>Trade analysis & coaching</span>
+                <span>LSTM price predictor (TensorFlow)</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-purple-500" />
-                <span>Personalized education</span>
+                <span>ML performance dashboard</span>
               </div>
             </CardContent>
           </Card>
