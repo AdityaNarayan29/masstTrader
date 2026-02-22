@@ -45,12 +45,16 @@ from backend.database import (
     save_algo_trade, close_algo_trade, close_algo_trade_by_ticket,
     get_algo_trade, get_open_algo_trade, list_algo_trades, get_algo_trade_stats,
 )
+from backend.core.ml_filter import predict_confidence, get_model_status, reload_model, load_model as load_ml_model
 from config.settings import settings
 
 app = FastAPI(title="MasstTrader API", version="1.0.0")
 
 # Initialize SQLite database
 init_db()
+
+# Pre-load ML confidence model (if exists)
+load_ml_model()
 
 # ── CORS — restrict to known origins ──
 _cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
@@ -111,6 +115,7 @@ def _make_algo_state(symbol=None, timeframe="5m", strategy_name=None, strategy_i
         "active_rule_index": 0,
         "trade_state": None,
         "current_algo_trade_id": None,
+        "ml_confidence": None,
     }
 
 
@@ -1153,7 +1158,22 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                 if not state["in_position"]:
                     # Check if ALL entry conditions are met
                     all_entry = all(r["passed"] for r in entry_results)
+                    ml_pass = True  # default: allow trade if no ML model
                     if all_entry and len(entry_conditions) > 0:
+                        # ── ML Confidence Gate ──
+                        ml_price = price_info["ask"] if direction == "buy" else price_info["bid"]
+                        ml_result = predict_confidence(state["indicators"], direction, ml_price)
+                        state["ml_confidence"] = sanitize_for_json(ml_result)
+                        ml_pass = ml_result["pass"]
+
+                        if not ml_pass:
+                            _add_signal(state, "ml_skip",
+                                f"ML filter blocked — confidence {ml_result['score']:.0%} < {ml_result['threshold']:.0%} threshold")
+                        elif ml_result["model_loaded"]:
+                            _add_signal(state, "ml_pass",
+                                f"ML confidence {ml_result['score']:.0%} — proceeding with entry")
+
+                    if all_entry and len(entry_conditions) > 0 and ml_pass:
                         try:
                             # Calculate ATR-based or pip-based SL/TP
                             import pandas as pd
@@ -1244,6 +1264,7 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                                         "entry_indicators": entry_snapshot,
                                         "entry_conditions": entry_cond_results,
                                         "mt5_ticket": result.get("order_id"),
+                                        "ml_confidence": ml_result.get("score") if ml_result.get("model_loaded") else None,
                                     }))
                                     state["current_algo_trade_id"] = db_trade["id"]
                                 except Exception as e:
@@ -1365,6 +1386,7 @@ def _instance_to_dict(inst: AlgoInstance) -> dict:
         "last_check": s["last_check"],
         "trade_state": s.get("trade_state"),
         "active_rule_index": s.get("active_rule_index", 0),
+        "ml_confidence": s.get("ml_confidence"),
     }
 
 
@@ -1508,6 +1530,43 @@ def get_algo_trade_detail_endpoint(trade_id: str):
     if not trade:
         raise HTTPException(status_code=404, detail="Algo trade not found")
     return trade
+
+
+# ──────────────────────────────────────
+# ML CONFIDENCE FILTER
+# ──────────────────────────────────────
+
+@app.get("/api/ml/status")
+def ml_status():
+    """Get ML model status and metadata."""
+    return get_model_status()
+
+
+@app.post("/api/ml/train")
+def ml_train():
+    """Train/retrain the ML confidence model from backtest + live trade data."""
+    from backend.core.trainer import train_model
+    result = train_model(connector=connector, bars=2000)
+    return result
+
+
+@app.post("/api/ml/reload")
+def ml_reload():
+    """Force reload the ML model from disk."""
+    reload_model()
+    return get_model_status()
+
+
+class MLThresholdRequest(BaseModel):
+    threshold: float = Field(ge=0.0, le=1.0)
+
+
+@app.post("/api/ml/threshold")
+def ml_set_threshold(req: MLThresholdRequest):
+    """Adjust the ML confidence threshold at runtime."""
+    from backend.core import ml_filter
+    ml_filter.DEFAULT_THRESHOLD = req.threshold
+    return {"threshold": req.threshold}
 
 
 @app.get("/api/health")

@@ -75,11 +75,17 @@ def init_db():
             swap              REAL,
             net_pnl           REAL,
             mt5_ticket        INTEGER,
+            ml_confidence     REAL,
             status            TEXT NOT NULL DEFAULT 'open',
             created_at        TEXT NOT NULL,
             updated_at        TEXT NOT NULL
         );
     """)
+    # Migration: add ml_confidence to existing DBs
+    try:
+        conn.execute("ALTER TABLE algo_trades ADD COLUMN ml_confidence REAL")
+    except Exception:
+        pass  # Column already exists
     conn.close()
 
 
@@ -306,6 +312,7 @@ def _row_to_algo_trade(row: sqlite3.Row) -> dict:
         "swap": row["swap"],
         "net_pnl": row["net_pnl"],
         "mt5_ticket": row["mt5_ticket"],
+        "ml_confidence": row["ml_confidence"] if "ml_confidence" in row.keys() else None,
         "status": row["status"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -324,8 +331,8 @@ def save_algo_trade(trade: dict) -> dict:
             entry_price, entry_time, sl_price, tp_price,
             sl_atr_mult, tp_atr_mult, atr_at_entry,
             entry_indicators, entry_conditions,
-            mt5_ticket, status, created_at, updated_at)
-           VALUES (?,?,?,?,?, ?,?,?,?, ?,?,?,?, ?,?,?, ?,?, ?,?,?,?)""",
+            mt5_ticket, ml_confidence, status, created_at, updated_at)
+           VALUES (?,?,?,?,?, ?,?,?,?, ?,?,?,?, ?,?,?, ?,?, ?,?,?,?,?)""",
         (
             trade_id,
             trade.get("strategy_id"),
@@ -346,6 +353,7 @@ def save_algo_trade(trade: dict) -> dict:
             json.dumps(trade.get("entry_indicators", {})),
             json.dumps(trade.get("entry_conditions", [])),
             trade.get("mt5_ticket"),
+            trade.get("ml_confidence"),
             "open",
             now,
             now,

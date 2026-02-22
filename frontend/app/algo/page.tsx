@@ -125,6 +125,13 @@ export default function AlgoPage() {
   const [algoTradeStats, setAlgoTradeStats] = useState<AlgoTradeStats | null>(null);
   const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
 
+  // ML Confidence Filter state
+  type MLStatus = Awaited<ReturnType<typeof api.ml.status>>;
+  type MLTrainResult = Awaited<ReturnType<typeof api.ml.train>>;
+  const [mlStatus, setMlStatus] = useState<MLStatus | null>(null);
+  const [mlTraining, setMlTraining] = useState(false);
+  const [mlTrainResult, setMlTrainResult] = useState<MLTrainResult | null>(null);
+
   const stream = useLiveStream(symbol || "EURUSDm", timeframe);
   const liveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const [polledPrice, setPolledPrice] = useState<{ bid: number; ask: number; symbol: string; market_open?: boolean } | null>(null);
@@ -281,6 +288,9 @@ export default function AlgoPage() {
         }
       }
     }).catch((e: Error) => console.error(e.message));
+
+    // Load ML model status
+    api.ml.status().then(setMlStatus).catch(() => {});
   }, []);
 
   // Fetch full strategy (with ALL rules) when selection changes
@@ -798,6 +808,21 @@ export default function AlgoPage() {
                 <span className="text-muted-foreground">Trades:</span>{" "}
                 <span className="font-semibold">{algo.trades_placed}</span>
               </div>
+              {algo.ml_confidence && algo.ml_confidence.model_loaded && (
+                <div>
+                  <span className="text-muted-foreground">ML:</span>{" "}
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] font-mono ${
+                      algo.ml_confidence.score >= 0.7 ? "border-green-500 text-green-500" :
+                      algo.ml_confidence.score >= 0.55 ? "border-yellow-500 text-yellow-500" :
+                      "border-red-500 text-red-500"
+                    }`}
+                  >
+                    {(algo.ml_confidence.score * 100).toFixed(0)}%
+                  </Badge>
+                </div>
+              )}
               {algo.in_position && (
                 <Badge variant="default">In Position #{algo.position_ticket}</Badge>
               )}
@@ -1439,6 +1464,8 @@ export default function AlgoPage() {
                                           : "outline"
                               }
                               className={`text-[10px] shrink-0 w-14 justify-center ${
+                                sig.action === "ml_skip" ? "border-amber-500/50 text-amber-500 bg-amber-500/10" :
+                                sig.action === "ml_pass" ? "border-green-500/50 text-green-500 bg-green-500/10" :
                                 sig.action === "warn" ? "border-yellow-500/50 text-yellow-500" :
                                 sig.action === "flip" ? "bg-blue-600" : ""
                               }`}
@@ -1554,6 +1581,7 @@ export default function AlgoPage() {
                     <TableHead className="text-[10px]">Reason</TableHead>
                     <TableHead className="text-[10px] text-right">Bars</TableHead>
                     <TableHead className="text-[10px] text-right">Net</TableHead>
+                    <TableHead className="text-[10px] text-right">ML</TableHead>
                     <TableHead className="text-[10px]">Time</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1607,6 +1635,13 @@ export default function AlgoPage() {
                           }`}>
                             {t.net_pnl != null ? `${t.net_pnl >= 0 ? "+" : ""}$${t.net_pnl.toFixed(2)}` : "---"}
                           </TableCell>
+                          <TableCell className={`text-xs font-mono text-right ${
+                            t.ml_confidence == null ? "text-muted-foreground" :
+                            t.ml_confidence >= 0.7 ? "text-green-500" :
+                            t.ml_confidence >= 0.55 ? "text-yellow-500" : "text-red-500"
+                          }`}>
+                            {t.ml_confidence != null ? `${(t.ml_confidence * 100).toFixed(0)}%` : "---"}
+                          </TableCell>
                           <TableCell className="text-[10px] text-muted-foreground whitespace-nowrap">
                             <div>{new Date(t.entry_time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
                             {t.exit_time && (
@@ -1619,7 +1654,7 @@ export default function AlgoPage() {
                         {/* Expanded detail row */}
                         {expandedTradeId === t.id && (
                           <TableRow>
-                            <TableCell colSpan={8} className="bg-muted/30 p-4">
+                            <TableCell colSpan={9} className="bg-muted/30 p-4">
                               <div className="space-y-3">
                                 {/* Trade details */}
                                 <div className="flex flex-wrap gap-3 text-xs font-mono text-muted-foreground">
@@ -1779,6 +1814,153 @@ export default function AlgoPage() {
           </CardContent>
         </Card>
       )}
+      {/* ML Confidence Filter */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">ML Confidence Filter</CardTitle>
+          <CardDescription>
+            Machine learning model that scores trade signals and blocks low-probability entries
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Model status */}
+          <div className="flex flex-wrap gap-4 items-center text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Model:</span>
+              <Badge variant={mlStatus?.model_loaded ? "default" : "outline"}>
+                {mlStatus?.model_loaded ? "Loaded" : mlStatus?.model_exists ? "On disk" : "Not trained"}
+              </Badge>
+            </div>
+            {mlStatus?.model_trained_at && (
+              <span className="text-xs text-muted-foreground">
+                Trained: {new Date(mlStatus.model_trained_at).toLocaleString()}
+              </span>
+            )}
+            {mlStatus?.model_file_size_kb && (
+              <span className="text-xs text-muted-foreground">
+                {mlStatus.model_file_size_kb} KB
+              </span>
+            )}
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Threshold:</span>
+              <span className="font-mono font-bold">{((mlStatus?.threshold ?? 0.55) * 100).toFixed(0)}%</span>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              onClick={async () => {
+                setMlTraining(true);
+                setMlTrainResult(null);
+                try {
+                  const result = await api.ml.train();
+                  setMlTrainResult(result);
+                  // Refresh status
+                  api.ml.status().then(setMlStatus).catch(() => {});
+                } catch (e) {
+                  setMlTrainResult({ success: false, error: (e as Error).message });
+                } finally {
+                  setMlTraining(false);
+                }
+              }}
+              disabled={mlTraining}
+            >
+              {mlTraining ? (
+                <>
+                  <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                  Training...
+                </>
+              ) : (
+                "Train Model"
+              )}
+            </Button>
+            {mlStatus?.model_exists && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => api.ml.reload().then((s) => setMlStatus(s as MLStatus)).catch(() => {})}
+              >
+                Reload
+              </Button>
+            )}
+            <div className="flex items-center gap-2 ml-auto">
+              <Label className="text-xs">Threshold %</Label>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                step={5}
+                className="w-20 h-8 text-xs font-mono"
+                defaultValue={((mlStatus?.threshold ?? 0.55) * 100).toFixed(0)}
+                onBlur={(e) => {
+                  const val = Math.min(100, Math.max(0, Number(e.target.value))) / 100;
+                  api.ml.setThreshold(val).then(() => {
+                    api.ml.status().then(setMlStatus).catch(() => {});
+                  }).catch(() => {});
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Training results */}
+          {mlTrainResult && (
+            <div className={`rounded-lg border p-3 text-sm ${mlTrainResult.success ? "border-green-500/30 bg-green-500/5" : "border-red-500/30 bg-red-500/5"}`}>
+              {mlTrainResult.success ? (
+                <div className="space-y-2">
+                  <p className="font-medium text-green-600">
+                    Model trained — {mlTrainResult.model_type} on {mlTrainResult.total_samples} samples
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                    <div>
+                      <span className="text-muted-foreground">Accuracy: </span>
+                      <span className="font-mono font-bold">{((mlTrainResult.accuracy ?? 0) * 100).toFixed(1)}%</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Precision: </span>
+                      <span className="font-mono font-bold">{((mlTrainResult.precision ?? 0) * 100).toFixed(1)}%</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Recall: </span>
+                      <span className="font-mono font-bold">{((mlTrainResult.recall ?? 0) * 100).toFixed(1)}%</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">F1: </span>
+                      <span className="font-mono font-bold">{((mlTrainResult.f1_score ?? 0) * 100).toFixed(1)}%</span>
+                    </div>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Sources: {mlTrainResult.backtest_samples} backtest + {mlTrainResult.stored_backtest_samples} stored + {mlTrainResult.live_samples} live
+                    {" | "}Win rate in data: {mlTrainResult.win_rate_in_data}%
+                  </div>
+                  {mlTrainResult.feature_importance && Object.keys(mlTrainResult.feature_importance).length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground">Feature Importance</p>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-1">
+                        {Object.entries(mlTrainResult.feature_importance)
+                          .sort(([, a], [, b]) => b - a)
+                          .map(([feat, imp]) => (
+                            <div key={feat} className="flex items-center gap-1 text-[10px] font-mono">
+                              <div
+                                className="h-1.5 rounded-full bg-primary"
+                                style={{ width: `${Math.max(4, imp * 200)}px` }}
+                              />
+                              <span className="text-muted-foreground truncate">{feat}</span>
+                              <span className="ml-auto">{(imp * 100).toFixed(1)}%</span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-red-500">{mlTrainResult.error}</p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

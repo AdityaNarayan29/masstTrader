@@ -306,6 +306,9 @@ export const api = {
           sl_atr_mult: number | null; tp_atr_mult: number | null;
         } | null;
         active_rule_index: number;
+        ml_confidence: {
+          score: number; pass: boolean; threshold: number; model_loaded: boolean;
+        } | null;
         instances?: Record<string, {
           running: boolean; symbol: string; timeframe: string;
           strategy_name: string | null; strategy_id: string | null;
@@ -318,6 +321,7 @@ export const api = {
           last_check: string | null;
           trade_state: { ticket: number; entry_price: number; sl_price: number | null; tp_price: number | null; direction: string; volume: number; entry_time: string; bars_since_entry: number; atr_at_entry: number | null; sl_atr_mult: number | null; tp_atr_mult: number | null } | null;
           active_rule_index: number;
+          ml_confidence: { score: number; pass: boolean; threshold: number; model_loaded: boolean } | null;
         }>;
       }>(`/api/algo/status${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}`),
     trades: (strategyId?: string, symbol?: string, limit?: number) =>
@@ -353,6 +357,7 @@ export const api = {
         swap: number | null;
         net_pnl: number | null;
         mt5_ticket: number | null;
+        ml_confidence: number | null;
         status: string;
         created_at: string;
         updated_at: string;
@@ -385,6 +390,30 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ topic, level, instruments }),
       }),
+  },
 
-    },
+  ml: {
+    status: () =>
+      request<{
+        model_exists: boolean; model_loaded: boolean; model_path: string;
+        threshold: number; feature_count: number; features: string[];
+        model_file_size_kb?: number; model_trained_at?: string;
+      }>("/api/ml/status"),
+    train: () =>
+      request<{
+        success: boolean; error?: string; model_type?: string;
+        total_samples?: number; backtest_samples?: number;
+        stored_backtest_samples?: number; live_samples?: number;
+        train_size?: number; test_size?: number; win_rate_in_data?: number;
+        accuracy?: number; precision?: number; recall?: number; f1_score?: number;
+        feature_importance?: Record<string, number>; trained_at?: string;
+      }>("/api/ml/train", { method: "POST" }, 120000),
+    reload: () =>
+      request<Record<string, unknown>>("/api/ml/reload", { method: "POST" }),
+    setThreshold: (threshold: number) =>
+      request<{ threshold: number }>("/api/ml/threshold", {
+        method: "POST",
+        body: JSON.stringify({ threshold }),
+      }),
+  },
 };

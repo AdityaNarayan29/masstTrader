@@ -10,6 +10,7 @@ build/
 data/*.csv
 data/*.json
 data/*.db
+data/ml_models/
 *.db
 .DS_Store
 .vscode/

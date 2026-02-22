@@ -86,6 +86,9 @@ export interface AlgoStatusData {
     sl_atr_mult: number | null; tp_atr_mult: number | null;
   } | null;
   active_rule_index: number;
+  ml_confidence?: {
+    score: number; pass: boolean; threshold: number; model_loaded: boolean;
+  } | null;
 }
 
 export type StreamStatus = "disconnected" | "connecting" | "connected" | "error";
