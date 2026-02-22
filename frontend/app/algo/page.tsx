@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { useLiveStream } from "@/hooks/use-live-stream";
 import { LiveChart, type TradeMarkerData, type PositionOverlay } from "@/components/live-chart";
 import { Loader2 } from "lucide-react";
+import { SymbolCombobox } from "@/components/symbol-combobox";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -19,7 +20,9 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -233,6 +236,34 @@ export default function AlgoPage() {
     if (strategyId === "__current__") return null;
     return strategies.find((s) => s.id === strategyId) ?? null;
   }, [strategyId, strategies]);
+
+  // Strategies filtered to the selected symbol
+  const filteredStrategies = useMemo(() => {
+    if (!symbol) return strategies;
+    return strategies.filter((s) => s.symbol === symbol);
+  }, [strategies, symbol]);
+
+  // Strategies from other symbols (universal strategies work on any symbol)
+  const otherStrategies = useMemo(() => {
+    if (!symbol) return [];
+    return strategies.filter((s) => s.symbol !== symbol);
+  }, [strategies, symbol]);
+
+  // Handle independent symbol change (from combobox)
+  const handleSymbolChange = (newSymbol: string) => {
+    setSymbol(newSymbol);
+    // Auto-select first strategy for this symbol, or fall back to in-memory
+    const match = strategies.filter((s) => s.symbol === newSymbol);
+    if (match.length > 0) {
+      setStrategyId(match[0].id);
+      if (match[0].timeframe) {
+        const uiTf = toUiTimeframe(match[0].timeframe);
+        if (["1m", "5m", "15m", "30m", "1h", "4h"].includes(uiTf)) setTimeframe(uiTf);
+      }
+    } else {
+      setStrategyId("__current__");
+    }
+  };
 
   // ── Effects ──
 
@@ -494,12 +525,24 @@ export default function AlgoPage() {
         <CardHeader>
           <CardTitle className="text-base">Algo Controls</CardTitle>
           <CardDescription>
-            Select a strategy, configure parameters, and start the algo.
+            Pick a symbol, select a strategy, and start the algo.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Config row */}
           <div className="flex flex-wrap items-end gap-4">
+            {/* Symbol picker */}
+            {!(symbol in allAlgoInstances) && (
+              <div className="space-y-2">
+                <Label>Symbol</Label>
+                <SymbolCombobox
+                  value={symbol}
+                  onChange={handleSymbolChange}
+                  disabled={symbol in allAlgoInstances}
+                />
+              </div>
+            )}
+            {/* Strategy selector (grouped by symbol match) */}
             {strategies.length > 0 && !(symbol in allAlgoInstances) && (
               <div className="space-y-2">
                 <Label>Strategy</Label>
@@ -507,7 +550,7 @@ export default function AlgoPage() {
                   setStrategyId(id);
                   const strat = strategies.find((s) => s.id === id);
                   if (strat) {
-                    if (strat.symbol) setSymbol(strat.symbol);
+                    // Only sync timeframe, NOT symbol — user's symbol choice is kept
                     if (strat.timeframe) {
                       const uiTf = toUiTimeframe(strat.timeframe);
                       if (["1m", "5m", "15m", "30m", "1h", "4h"].includes(uiTf)) setTimeframe(uiTf);
@@ -519,11 +562,26 @@ export default function AlgoPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__current__">Current (in-memory)</SelectItem>
-                    {strategies.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name} ({s.symbol})
-                      </SelectItem>
-                    ))}
+                    {filteredStrategies.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>For {symbol}</SelectLabel>
+                        {filteredStrategies.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name.replace(/ — [A-Z]+.*$/i, "")}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                    {otherStrategies.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>Other symbols</SelectLabel>
+                        {otherStrategies.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
