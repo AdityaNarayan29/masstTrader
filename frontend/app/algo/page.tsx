@@ -572,16 +572,17 @@ export default function AlgoPage() {
                         ))}
                       </SelectGroup>
                     )}
-                    {otherStrategies.length > 0 && (
-                      <SelectGroup>
-                        <SelectLabel>Other symbols</SelectLabel>
-                        {otherStrategies.map((s) => (
+                    {/* Group other strategies by their symbol */}
+                    {Array.from(new Set(otherStrategies.map((s) => s.symbol))).map((sym) => (
+                      <SelectGroup key={sym}>
+                        <SelectLabel>{sym}</SelectLabel>
+                        {otherStrategies.filter((s) => s.symbol === sym).map((s) => (
                           <SelectItem key={s.id} value={s.id}>
-                            {s.name}
+                            {s.name.replace(/ — [A-Z]+.*$/i, "")}
                           </SelectItem>
                         ))}
                       </SelectGroup>
-                    )}
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
