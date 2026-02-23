@@ -80,7 +80,7 @@ def init_db():
             created_at        TEXT NOT NULL,
             updated_at        TEXT NOT NULL
         );
-    """)
+
         CREATE TABLE IF NOT EXISTS ml_training_runs (
             id                TEXT PRIMARY KEY,
             model_type        TEXT NOT NULL,
