@@ -1735,6 +1735,12 @@ def health():
         "algo_running": len(algo_instances) > 0,
         "algo_count": len(algo_instances),
         "has_env_creds": bool(settings.MT5_LOGIN and settings.MT5_PASSWORD and settings.MT5_SERVER),
+        "_debug_env": {
+            "login_len": len(settings.MT5_LOGIN),
+            "pass_len": len(settings.MT5_PASSWORD),
+            "server_len": len(settings.MT5_SERVER),
+            "login_repr": repr(settings.MT5_LOGIN[:5]) if settings.MT5_LOGIN else "EMPTY",
+        },
     }
 
 
