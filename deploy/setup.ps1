@@ -1,4 +1,3 @@
-#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     MasstTrader backend setup script for fresh EC2 Windows instances.
@@ -12,6 +11,13 @@
     2. Run deploy/env-template.ps1 to configure .env
     3. Restart the service: nssm restart massttrader
 #>
+
+# Check admin
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Error "This script must be run as Administrator. Right-click PowerShell and select 'Run as Administrator'."
+    exit 1
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -38,7 +44,7 @@ function Test-CommandExists {
     return $null -ne (Get-Command $Command -ErrorAction SilentlyContinue)
 }
 
-# ── Step 1: Install Python ──
+# -- Step 1: Install Python --
 Write-Step "Step 1/8: Installing Python $PYTHON_VERSION"
 
 if (Test-CommandExists "python") {
@@ -62,7 +68,7 @@ if (Test-CommandExists "python") {
     }
 }
 
-# ── Step 2: Install Git ──
+# -- Step 2: Install Git --
 Write-Step "Step 2/8: Installing Git"
 
 if (Test-CommandExists "git") {
@@ -71,7 +77,6 @@ if (Test-CommandExists "git") {
 } else {
     Write-Host "Downloading Git installer..."
     $gitInstaller = "$env:TEMP\Git-installer.exe"
-    # Use Git for Windows latest release
     Invoke-WebRequest -Uri "https://github.com/git-for-windows/git/releases/download/v2.43.0.windows.1/Git-2.43.0-64-bit.exe" -OutFile $gitInstaller
     Write-Host "Installing Git (silent)..."
     Start-Process -FilePath $gitInstaller -ArgumentList "/VERYSILENT", "/NORESTART", "/NOCANCEL", "/SP-", "/CLOSEAPPLICATIONS" -Wait -NoNewWindow
@@ -89,24 +94,24 @@ if (Test-CommandExists "git") {
     }
 }
 
-# ── Step 3: Clone Repository ──
+# -- Step 3: Clone Repository --
 Write-Step "Step 3/8: Cloning Repository"
 
 if (Test-Path "$INSTALL_DIR\.git") {
-    Write-Host "Repo already cloned at $INSTALL_DIR — pulling latest..." -ForegroundColor Yellow
+    Write-Host "Repo already cloned at $INSTALL_DIR - pulling latest..." -ForegroundColor Yellow
     Push-Location $INSTALL_DIR
     git pull origin $BRANCH
     Pop-Location
 } else {
     if (Test-Path $INSTALL_DIR) {
-        Write-Host "Directory exists but is not a git repo — removing and re-cloning" -ForegroundColor Yellow
+        Write-Host "Directory exists but is not a git repo - removing and re-cloning" -ForegroundColor Yellow
         Remove-Item $INSTALL_DIR -Recurse -Force
     }
     git clone --branch $BRANCH $REPO_URL $INSTALL_DIR
     Write-Host "Cloned to $INSTALL_DIR" -ForegroundColor Green
 }
 
-# ── Step 4: Create Virtual Environment + Install Dependencies ──
+# -- Step 4: Create Virtual Environment + Install Dependencies --
 Write-Step "Step 4/8: Setting up Python venv + dependencies"
 
 Push-Location $INSTALL_DIR
@@ -125,7 +130,7 @@ Write-Host "Installing requirements (this may take a few minutes)..."
 Write-Host "Dependencies installed" -ForegroundColor Green
 Pop-Location
 
-# ── Step 5: Create Directories ──
+# -- Step 5: Create Directories --
 Write-Step "Step 5/8: Creating data directories"
 
 New-Item -ItemType Directory -Force -Path "$INSTALL_DIR\data" | Out-Null
@@ -133,7 +138,7 @@ New-Item -ItemType Directory -Force -Path "$INSTALL_DIR\data\ml_models" | Out-Nu
 New-Item -ItemType Directory -Force -Path $LOG_DIR | Out-Null
 Write-Host "Created data/, data/ml_models/, logs/" -ForegroundColor Green
 
-# ── Step 6: Install NSSM ──
+# -- Step 6: Install NSSM --
 Write-Step "Step 6/8: Installing NSSM (service manager)"
 
 $nssmExe = "$NSSM_DIR\nssm.exe"
@@ -158,7 +163,7 @@ if (Test-Path $nssmExe) {
     Write-Host "NSSM installed" -ForegroundColor Green
 }
 
-# ── Step 7: Register Windows Service ──
+# -- Step 7: Register Windows Service --
 Write-Step "Step 7/8: Registering MasstTrader as a Windows service"
 
 # Remove existing service if present
@@ -188,9 +193,9 @@ $pythonExe = "$VENV_DIR\Scripts\python.exe"
 # Pass .env file location via environment
 & $nssmExe set $SERVICE_NAME AppEnvironmentExtra "DOTENV_PATH=$INSTALL_DIR\.env"
 
-Write-Host "Service '$SERVICE_NAME' registered with auto-start and auto-restart" -ForegroundColor Green
+Write-Host "Service registered with auto-start and auto-restart" -ForegroundColor Green
 
-# ── Step 8: Firewall Rule ──
+# -- Step 8: Firewall Rule --
 Write-Step "Step 8/8: Configuring firewall"
 
 $fwRule = Get-NetFirewallRule -DisplayName "MasstTrader API" -ErrorAction SilentlyContinue
@@ -201,7 +206,7 @@ if ($fwRule) {
     Write-Host "Opened port 8008 (inbound TCP)" -ForegroundColor Green
 }
 
-# ── Done ──
+# -- Done --
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  SETUP COMPLETE!" -ForegroundColor Green
@@ -209,9 +214,9 @@ Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "  1. Install MetaTrader 5 terminal and login to your Exness account"
-Write-Host "  2. Run: cd $INSTALL_DIR && .\deploy\env-template.ps1"
+Write-Host "  2. Run: cd $INSTALL_DIR; .\deploy\env-template.ps1"
 Write-Host "  3. Start the service: nssm start $SERVICE_NAME"
-Write-Host "  4. Test: http://$(hostname):8008/api/health"
+Write-Host "  4. Test: http://localhost:8008/api/health"
 Write-Host "  5. Update frontend/vercel.json with this instance's public IP"
 Write-Host ""
 Write-Host "Useful commands:" -ForegroundColor Yellow
