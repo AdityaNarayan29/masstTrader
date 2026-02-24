@@ -945,9 +945,13 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
     state = instance.state
     stop_ev = instance.stop_event
 
-    # Helper: submit MT5 call through algo-dedicated executor (avoids SSE starvation)
+    # Helper: call MT5 directly from algo thread (MT5 Python API is not thread-safe,
+    # but this thread is the only one making direct calls; SSE uses mt5_executor separately)
+    import threading as _threading
+    _mt5_lock = _threading.Lock()
     def _mt5(fn, *args, **kwargs):
-        return mt5_algo_executor.submit(fn, *args, **kwargs).result(timeout=15)
+        with _mt5_lock:
+            return fn(*args, **kwargs)
 
     try:
         rules = strategy.get("rules", [])
