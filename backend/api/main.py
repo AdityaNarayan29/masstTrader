@@ -945,13 +945,11 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
     state = instance.state
     stop_ev = instance.stop_event
 
-    # Helper: call MT5 directly from algo thread (MT5 Python API is not thread-safe,
-    # but this thread is the only one making direct calls; SSE uses mt5_executor separately)
-    import threading as _threading
-    _mt5_lock = _threading.Lock()
+    # Helper: route all MT5 calls through the shared mt5_executor so they
+    # serialise with SSE/WS calls (MT5 Python API is single-threaded).
     def _mt5(fn, *args, **kwargs):
-        with _mt5_lock:
-            return fn(*args, **kwargs)
+        future = mt5_executor.submit(fn, *args, **kwargs)
+        return future.result(timeout=30)
 
     try:
         rules = strategy.get("rules", [])
@@ -1423,11 +1421,6 @@ def algo_start(req: AlgoStartRequest):
     if not connector or not connector.is_connected:
         raise HTTPException(status_code=400, detail="MT5 not connected")
 
-    # Check if an algo is already running on this symbol
-    with _instances_lock:
-        if req.symbol in algo_instances:
-            raise HTTPException(status_code=400, detail=f"Algo already running on {req.symbol}")
-
     # Load strategy if ID provided
     if req.strategy_id:
         saved = get_strategy(req.strategy_id)
@@ -1438,7 +1431,10 @@ def algo_start(req: AlgoStartRequest):
     if not current_strategy:
         raise HTTPException(status_code=400, detail="No strategy loaded")
 
-    # Auto-derive timeframe from strategy rule (frontend timeframe is fallback)
+    # Auto-derive symbol and timeframe from strategy (request values are fallbacks)
+    strategy_symbol = current_strategy.get("symbol")
+    effective_symbol = strategy_symbol if strategy_symbol else req.symbol
+
     rules = current_strategy.get("rules", [])
     effective_tf = req.timeframe
     if rules:
@@ -1446,9 +1442,14 @@ def algo_start(req: AlgoStartRequest):
         if rule_tf:
             effective_tf = rule_tf
 
+    # Re-check with effective symbol
+    with _instances_lock:
+        if effective_symbol in algo_instances:
+            raise HTTPException(status_code=400, detail=f"Algo already running on {effective_symbol}")
+
     # Create instance
     instance = AlgoInstance(
-        symbol=req.symbol,
+        symbol=effective_symbol,
         timeframe=effective_tf,
         volume=req.volume,
         strategy_name=current_strategy.get("name", "Unknown"),
@@ -1457,16 +1458,16 @@ def algo_start(req: AlgoStartRequest):
 
     # Register before starting thread
     with _instances_lock:
-        algo_instances[req.symbol] = instance
+        algo_instances[effective_symbol] = instance
 
     instance.thread = threading.Thread(
         target=_algo_loop,
-        args=(instance, current_strategy, req.symbol, effective_tf, req.volume),
+        args=(instance, current_strategy, effective_symbol, effective_tf, req.volume),
         daemon=True,
     )
     instance.thread.start()
 
-    return {"success": True, "symbol": req.symbol, "message": f"Algo started on {req.symbol}"}
+    return {"success": True, "symbol": effective_symbol, "message": f"Algo started on {effective_symbol}"}
 
 
 @app.post("/api/algo/stop")
@@ -1747,7 +1748,6 @@ def health():
 # ──────────────────────────────────────
 
 mt5_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mt5ws")  # MT5 is single-threaded, serialize all calls
-mt5_algo_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mt5algo")  # Separate executor for algo thread to avoid SSE starvation
 
 
 @app.websocket("/api/ws/live")
