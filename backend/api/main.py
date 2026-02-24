@@ -1075,10 +1075,14 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
 
                 # Fetch latest candles + indicators
                 df = _mt5(connector.get_history, symbol, timeframe, 100)
+                print(f"[ALGO] got {len(df)} bars, columns: {list(df.columns)[:5]}...", flush=True)
                 df = add_all_indicators(df)
+                print(f"[ALGO] indicators added, {len(df)} rows, {len(df.columns)} cols", flush=True)
                 df = df.dropna().reset_index()
+                print(f"[ALGO] after dropna: {len(df)} rows", flush=True)
 
                 if len(df) < 2:
+                    print(f"[ALGO] not enough rows ({len(df)}), waiting 10s", flush=True)
                     stop_ev.wait(10)
                     continue
 
@@ -1360,6 +1364,8 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                             bars_in_trade = 0
 
             except Exception as e:
+                import traceback
+                print(f"[ALGO] INNER ERROR: {e}\n{traceback.format_exc()}", flush=True)
                 _add_signal(state, "error", str(e))
 
             # Wait before next check
