@@ -948,9 +948,14 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
     # Helper: call MT5 safely from algo thread using the global lock.
     # No executor needed — the lock serialises with SSE/WS calls.
     def _mt5(fn, *args, **kwargs):
-        return _safe_mt5_call(fn, *args, **kwargs)
+        fname = getattr(fn, '__name__', str(fn))
+        print(f"[ALGO] _mt5 calling {fname}...", flush=True)
+        result = _safe_mt5_call(fn, *args, **kwargs)
+        print(f"[ALGO] _mt5 {fname} done", flush=True)
+        return result
 
     try:
+        print(f"[ALGO] Thread started for {symbol}/{timeframe}", flush=True)
         rules = strategy.get("rules", [])
         if not rules:
             _add_signal(state, "error", "Strategy has no rules")
@@ -977,7 +982,9 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
         rule_name = rule.get("name", "")
         rule_index = 0
 
+        print(f"[ALGO] About to select_symbol {symbol}", flush=True)
         _mt5(connector.select_symbol, symbol)
+        print(f"[ALGO] select_symbol done", flush=True)
 
         # Get pip value and symbol sizing info
         try:
@@ -1042,9 +1049,11 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
         except Exception:
             pass
 
+        print(f"[ALGO] Entering main loop", flush=True)
         while not stop_ev.is_set():
             try:
                 check_count += 1
+                print(f"[ALGO] Loop iteration #{check_count}", flush=True)
 
                 # Check if MT5 connection is still alive
                 if connector is None or not connector.is_connected:
@@ -1103,6 +1112,7 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                     get_indicator_snapshot(df, -1)
                 )
                 state["last_check"] = datetime.now(timezone.utc).isoformat()
+                print(f"[ALGO] ✓ Tick #{check_count} complete, last_check set", flush=True)
 
                 # Evaluate each entry condition individually and store results
                 entry_results = []
@@ -1358,6 +1368,8 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
         _add_signal(state, "stop", "Algo stopped")
 
     except Exception as e:
+        import traceback
+        print(f"[ALGO] CRASHED: {e}\n{traceback.format_exc()}", flush=True)
         _add_signal(state, "error", f"Algo crashed: {str(e)}")
     finally:
         # If algo stopped while in position, close MT5 position and mark DB trade
