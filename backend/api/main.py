@@ -945,9 +945,9 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
     state = instance.state
     stop_ev = instance.stop_event
 
-    # Helper: submit MT5 call through single-threaded executor (thread safety)
+    # Helper: submit MT5 call through algo-dedicated executor (avoids SSE starvation)
     def _mt5(fn, *args, **kwargs):
-        return mt5_executor.submit(fn, *args, **kwargs).result(timeout=15)
+        return mt5_algo_executor.submit(fn, *args, **kwargs).result(timeout=15)
 
     try:
         rules = strategy.get("rules", [])
@@ -1743,6 +1743,7 @@ def health():
 # ──────────────────────────────────────
 
 mt5_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mt5ws")  # MT5 is single-threaded, serialize all calls
+mt5_algo_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mt5algo")  # Separate executor for algo thread to avoid SSE starvation
 
 
 @app.websocket("/api/ws/live")
