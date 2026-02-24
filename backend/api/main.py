@@ -945,11 +945,10 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
     state = instance.state
     stop_ev = instance.stop_event
 
-    # Helper: route all MT5 calls through the shared mt5_executor so they
-    # serialise with SSE/WS calls (MT5 Python API is single-threaded).
+    # Helper: call MT5 safely from algo thread using the global lock.
+    # No executor needed — the lock serialises with SSE/WS calls.
     def _mt5(fn, *args, **kwargs):
-        future = mt5_executor.submit(fn, *args, **kwargs)
-        return future.result(timeout=30)
+        return _safe_mt5_call(fn, *args, **kwargs)
 
     try:
         rules = strategy.get("rules", [])
@@ -1747,7 +1746,18 @@ def health():
 # LIVE STREAMING (WebSocket)
 # ──────────────────────────────────────
 
-mt5_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mt5ws")  # MT5 is single-threaded, serialize all calls
+mt5_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mt5ws")
+
+# Global lock for MT5 API — the Python MT5 library is not thread-safe.
+# Both SSE/WS (via mt5_executor) and the algo thread acquire this lock.
+import threading as _mt5_threading
+_mt5_global_lock = _mt5_threading.Lock()
+
+
+def _safe_mt5_call(fn, *args, **kwargs):
+    """Acquire global MT5 lock, call fn, release. Used by SSE/WS executor AND algo thread."""
+    with _mt5_global_lock:
+        return fn(*args, **kwargs)
 
 
 @app.websocket("/api/ws/live")
@@ -1766,7 +1776,7 @@ async def ws_live(ws: WebSocket):
             await ws.close()
             return
 
-        await loop.run_in_executor(mt5_executor, connector.select_symbol, subscribed_symbol)
+        await loop.run_in_executor(mt5_executor, _safe_mt5_call, connector.select_symbol, subscribed_symbol)
 
         tick_counter = 0
         while True:
@@ -1779,7 +1789,7 @@ async def ws_live(ws: WebSocket):
                     break
                 if msg.get("symbol"):
                     subscribed_symbol = msg["symbol"]
-                    await loop.run_in_executor(mt5_executor, connector.select_symbol, subscribed_symbol)
+                    await loop.run_in_executor(mt5_executor, _safe_mt5_call, connector.select_symbol, subscribed_symbol)
                 if msg.get("timeframe"):
                     subscribed_timeframe = msg["timeframe"]
             except asyncio.TimeoutError:
@@ -1788,7 +1798,7 @@ async def ws_live(ws: WebSocket):
             # Price tick — every iteration (~500ms)
             try:
                 price = await loop.run_in_executor(
-                    mt5_executor, connector.get_symbol_price, subscribed_symbol
+                    mt5_executor, _safe_mt5_call, connector.get_symbol_price, subscribed_symbol
                 )
                 await ws.send_json({"type": "price", **sanitize_for_json(price)})
             except Exception:
@@ -1798,7 +1808,7 @@ async def ws_live(ws: WebSocket):
             if tick_counter % 2 == 0:
                 try:
                     positions = await loop.run_in_executor(
-                        mt5_executor, connector.get_positions
+                        mt5_executor, _safe_mt5_call, connector.get_positions
                     )
                     await ws.send_json({"type": "positions", "data": sanitize_for_json(positions)})
                 except Exception:
@@ -1808,7 +1818,7 @@ async def ws_live(ws: WebSocket):
             if tick_counter % 4 == 0:
                 try:
                     account = await loop.run_in_executor(
-                        mt5_executor, connector.get_account_info
+                        mt5_executor, _safe_mt5_call, connector.get_account_info
                     )
                     await ws.send_json({"type": "account", **sanitize_for_json(account)})
                 except Exception:
@@ -1829,7 +1839,7 @@ async def ws_live(ws: WebSocket):
                 try:
                     from backend.core.indicators import add_all_indicators, get_indicator_snapshot
                     df = await loop.run_in_executor(
-                        mt5_executor, connector.get_history,
+                        mt5_executor, _safe_mt5_call, connector.get_history,
                         subscribed_symbol, subscribed_timeframe, 50
                     )
                     df = add_all_indicators(df)
@@ -1878,7 +1888,7 @@ async def _sse_live_generator(request: Request, symbol: str, timeframe: str):
         yield _sse_event("error", {"message": "MT5 not connected"})
         return
 
-    await loop.run_in_executor(mt5_executor, connector.select_symbol, symbol)
+    await loop.run_in_executor(mt5_executor, _safe_mt5_call, connector.select_symbol, symbol)
 
     tick_counter = 0
     while True:
@@ -1890,7 +1900,7 @@ async def _sse_live_generator(request: Request, symbol: str, timeframe: str):
         # Price — every tick (~200ms = ~5 updates/sec)
         try:
             price = await loop.run_in_executor(
-                mt5_executor, connector.get_symbol_price, symbol
+                mt5_executor, _safe_mt5_call, connector.get_symbol_price, symbol
             )
             yield _sse_event("price", price)
         except Exception:
@@ -1899,7 +1909,7 @@ async def _sse_live_generator(request: Request, symbol: str, timeframe: str):
         # Positions — every tick
         try:
             positions = await loop.run_in_executor(
-                mt5_executor, connector.get_positions
+                mt5_executor, _safe_mt5_call, connector.get_positions
             )
             yield _sse_event("positions", {"data": positions})
         except Exception:
@@ -1908,7 +1918,7 @@ async def _sse_live_generator(request: Request, symbol: str, timeframe: str):
         # Account — every tick
         try:
             account = await loop.run_in_executor(
-                mt5_executor, connector.get_account_info
+                mt5_executor, _safe_mt5_call, connector.get_account_info
             )
             yield _sse_event("account", account)
         except Exception:
@@ -1929,7 +1939,7 @@ async def _sse_live_generator(request: Request, symbol: str, timeframe: str):
             try:
                 from backend.core.indicators import add_all_indicators, get_indicator_snapshot
                 df = await loop.run_in_executor(
-                    mt5_executor, connector.get_history,
+                    mt5_executor, _safe_mt5_call, connector.get_history,
                     symbol, timeframe, 50
                 )
                 df = add_all_indicators(df)
@@ -1977,7 +1987,7 @@ async def _sse_ticker_generator(request: Request, symbol: str):
         yield _sse_event("error", {"message": "MT5 not connected"})
         return
 
-    await loop.run_in_executor(mt5_executor, connector.select_symbol, symbol)
+    await loop.run_in_executor(mt5_executor, _safe_mt5_call, connector.select_symbol, symbol)
 
     tick_counter = 0
     while True:
@@ -1989,7 +1999,7 @@ async def _sse_ticker_generator(request: Request, symbol: str):
         # Price — every tick (~500ms)
         try:
             price = await loop.run_in_executor(
-                mt5_executor, connector.get_symbol_price, symbol
+                mt5_executor, _safe_mt5_call, connector.get_symbol_price, symbol
             )
             yield _sse_event("price", price)
         except Exception:
@@ -1998,7 +2008,7 @@ async def _sse_ticker_generator(request: Request, symbol: str):
         # Account — every tick
         try:
             account = await loop.run_in_executor(
-                mt5_executor, connector.get_account_info
+                mt5_executor, _safe_mt5_call, connector.get_account_info
             )
             yield _sse_event("account", account)
         except Exception:
