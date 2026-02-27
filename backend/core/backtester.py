@@ -139,9 +139,14 @@ def run_backtest(
     strategy_rule: dict,
     initial_balance: float = 10000.0,
     risk_per_trade: float = 1.0,
+    all_rules: list = None,
 ) -> dict:
     """
-    Run a backtest on historical data using a single strategy rule.
+    Run a backtest on historical data using strategy rules.
+
+    Supports multi-rule strategies (e.g. one buy rule + one sell rule).
+    If all_rules is provided, iterates all rules on each bar looking for entries.
+    Otherwise falls back to the single strategy_rule for backward compatibility.
 
     Returns dict with:
     - trades: list of executed trades
@@ -152,6 +157,22 @@ def run_backtest(
     df = add_all_indicators(df)
     df = df.dropna().reset_index()
 
+    # Build list of rule configs
+    rules_list = all_rules if all_rules else [strategy_rule]
+    rule_configs = []
+    for idx, rule in enumerate(rules_list):
+        rule_configs.append({
+            "index": idx,
+            "direction": rule.get("direction", "buy"),
+            "entry_conditions": rule.get("entry_conditions", []),
+            "exit_conditions": rule.get("exit_conditions", []),
+            "sl_pips": rule.get("stop_loss_pips"),
+            "tp_pips": rule.get("take_profit_pips"),
+            "sl_atr_mult": rule.get("stop_loss_atr_multiplier"),
+            "tp_atr_mult": rule.get("take_profit_atr_multiplier"),
+            "min_bars": rule.get("min_bars_in_trade") or 0,
+        })
+
     balance = initial_balance
     equity_curve = [balance]
     trades = []
@@ -159,48 +180,52 @@ def run_backtest(
     entry_price = 0
     entry_time = None
     entry_index = 0
-
-    entry_conditions = strategy_rule.get("entry_conditions", [])
-    exit_conditions = strategy_rule.get("exit_conditions", [])
-    sl_pips = strategy_rule.get("stop_loss_pips")
-    tp_pips = strategy_rule.get("take_profit_pips")
-    sl_atr_mult = strategy_rule.get("stop_loss_atr_multiplier")
-    tp_atr_mult = strategy_rule.get("take_profit_atr_multiplier")
-    min_bars = strategy_rule.get("min_bars_in_trade") or 0
-
-    effective_sl_pips = None  # computed at entry from ATR if needed
+    active_rc = None  # which rule opened the current position
+    effective_sl_pips = None
     effective_tp_pips = None
+    active_direction = "buy"
 
     for i in range(1, len(df)):
         row = df.iloc[i]
         prev_row = df.iloc[i - 1]
 
         if not in_position:
-            # Check entry conditions (ALL must be true)
-            all_entry_met = all(
-                evaluate_condition(row, prev_row, cond) for cond in entry_conditions
-            )
-            if all_entry_met and len(entry_conditions) > 0:
-                entry_price = row["close"]
-                entry_time = row["datetime"]
-                entry_index = i
-                in_position = True
+            # Check entry conditions for ALL rules, take first match
+            for rc in rule_configs:
+                if not rc["entry_conditions"]:
+                    continue
+                all_entry_met = all(
+                    evaluate_condition(row, prev_row, cond)
+                    for cond in rc["entry_conditions"]
+                )
+                if all_entry_met:
+                    entry_price = row["close"]
+                    entry_time = row["datetime"]
+                    entry_index = i
+                    in_position = True
+                    active_rc = rc
+                    active_direction = rc["direction"]
 
-                # Compute effective SL/TP from ATR at entry time
-                atr_val = float(row["ATR_14"]) if "ATR_14" in row.index and not pd.isna(row.get("ATR_14")) else 0
-                if sl_atr_mult and atr_val > 0:
-                    effective_sl_pips = (atr_val * sl_atr_mult) * 10000
-                else:
-                    effective_sl_pips = sl_pips
-                if tp_atr_mult and atr_val > 0:
-                    effective_tp_pips = (atr_val * tp_atr_mult) * 10000
-                else:
-                    effective_tp_pips = tp_pips
+                    # Compute effective SL/TP from ATR at entry time
+                    atr_val = float(row["ATR_14"]) if "ATR_14" in row.index and not pd.isna(row.get("ATR_14")) else 0
+                    if rc["sl_atr_mult"] and atr_val > 0:
+                        effective_sl_pips = (atr_val * rc["sl_atr_mult"]) * 10000
+                    else:
+                        effective_sl_pips = rc["sl_pips"]
+                    if rc["tp_atr_mult"] and atr_val > 0:
+                        effective_tp_pips = (atr_val * rc["tp_atr_mult"]) * 10000
+                    else:
+                        effective_tp_pips = rc["tp_pips"]
+                    break  # first matching rule wins
 
         else:
-            # Check exit conditions
+            # Check exit conditions using the active rule
             current_price = row["close"]
-            pnl_pips = (current_price - entry_price) * 10000  # rough pip calc
+            # PnL direction depends on whether it's a buy or sell
+            if active_direction == "buy":
+                pnl_pips = (current_price - entry_price) * 10000
+            else:
+                pnl_pips = (entry_price - current_price) * 10000
 
             exit_reason = None
 
@@ -213,6 +238,8 @@ def run_backtest(
 
             # Strategy exit conditions — gated behind min_bars
             bars_held = i - entry_index
+            min_bars = active_rc["min_bars"]
+            exit_conditions = active_rc["exit_conditions"]
             if exit_conditions and bars_held >= min_bars:
                 all_exit_met = all(
                     evaluate_condition(row, prev_row, cond)
@@ -238,9 +265,11 @@ def run_backtest(
                         "exit_price": current_price,
                         "entry_time": str(entry_time),
                         "exit_time": str(row["datetime"]),
+                        "direction": active_direction,
                         "pnl_pips": round(pnl_pips, 2),
                         "profit": round(profit, 2),
                         "exit_reason": exit_reason,
+                        "rule_index": active_rc["index"],
                         "indicators_at_entry": get_indicator_snapshot(
                             df, entry_index
                         ),
@@ -248,6 +277,7 @@ def run_backtest(
                     }
                 )
                 in_position = False
+                active_rc = None
 
         equity_curve.append(balance)
 

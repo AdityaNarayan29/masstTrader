@@ -547,12 +547,19 @@ def list_strategies_endpoint():
     for s in strategies:
         rules = s.get("rules", [])
         first_rule = rules[0] if rules else {}
+        # Collect directions from all rules
+        directions = list(set(r.get("direction", "buy") for r in rules)) if rules else ["buy"]
+        # Collect additional_timeframes from all rules
+        all_atfs = set()
+        for r in rules:
+            for atf in (r.get("additional_timeframes") or []):
+                all_atfs.add(atf)
         result.append({
             "id": s["id"],
             "name": s["name"],
             "symbol": s["symbol"],
             "timeframe": first_rule.get("timeframe", ""),
-            "direction": first_rule.get("direction", "buy"),
+            "direction": "/".join(sorted(directions)),
             "entry_conditions": first_rule.get("entry_conditions", []),
             "exit_conditions": first_rule.get("exit_conditions", []),
             "stop_loss_pips": first_rule.get("stop_loss_pips"),
@@ -560,8 +567,9 @@ def list_strategies_endpoint():
             "stop_loss_atr_multiplier": first_rule.get("stop_loss_atr_multiplier"),
             "take_profit_atr_multiplier": first_rule.get("take_profit_atr_multiplier"),
             "min_bars_in_trade": first_rule.get("min_bars_in_trade"),
-            "additional_timeframes": first_rule.get("additional_timeframes"),
+            "additional_timeframes": sorted(all_atfs) if all_atfs else first_rule.get("additional_timeframes"),
             "rule_count": len(rules),
+            "rules": rules,
             "created_at": s["created_at"],
             "updated_at": s["updated_at"],
         })
@@ -693,8 +701,12 @@ def run_backtest_endpoint(req: BacktestRequest):
         if not rules:
             raise HTTPException(status_code=400, detail="Strategy has no rules")
 
-        # Multi-TF: merge higher-timeframe indicator values into primary df
-        additional_tfs = rules[0].get("additional_timeframes") or []
+        # Multi-TF: merge higher-timeframe indicator values from all rules
+        additional_tfs_set = set()
+        for r in rules:
+            for atf in (r.get("additional_timeframes") or []):
+                additional_tfs_set.add(atf)
+        additional_tfs = list(additional_tfs_set)
         if additional_tfs and connector and connector.is_connected:
             from backend.core.indicators import add_all_indicators as _add_ind
             for atf in additional_tfs:
@@ -714,6 +726,7 @@ def run_backtest_endpoint(req: BacktestRequest):
             df, rules[0],
             initial_balance=req.initial_balance,
             risk_per_trade=req.risk_percent,
+            all_rules=rules if len(rules) > 1 else None,
         )
 
         # Include candle data for the chart
@@ -955,26 +968,51 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
             _add_signal(state, "error", "Strategy has no rules")
             return
 
-        if len(rules) > 1:
-            _add_signal(state, "info", f"Strategy has {len(rules)} rules — using first rule (multi-rule not yet supported)")
-        rule = rules[0]
-        entry_conditions = rule.get("entry_conditions", [])
-        exit_conditions = rule.get("exit_conditions", [])
-        sl_pips = rule.get("stop_loss_pips")
-        tp_pips = rule.get("take_profit_pips")
-        sl_atr_mult = rule.get("stop_loss_atr_multiplier")
-        tp_atr_mult = rule.get("take_profit_atr_multiplier")
-        min_bars = rule.get("min_bars_in_trade") or 0
-        risk_percent = rule.get("risk_percent", 1.0)
-        additional_tfs = rule.get("additional_timeframes") or []
-        direction = rule.get("direction", "buy")  # "buy" or "sell"
-        state["strategy_rules"] = rule
+        # Multi-rule support: collect all rules with their parameters
+        rule_configs = []
+        all_additional_tfs = set()
+        for idx, rule in enumerate(rules):
+            rc = {
+                "index": idx,
+                "rule": rule,
+                "name": rule.get("name", ""),
+                "direction": rule.get("direction", "buy"),
+                "entry_conditions": rule.get("entry_conditions", []),
+                "exit_conditions": rule.get("exit_conditions", []),
+                "sl_pips": rule.get("stop_loss_pips"),
+                "tp_pips": rule.get("take_profit_pips"),
+                "sl_atr_mult": rule.get("stop_loss_atr_multiplier"),
+                "tp_atr_mult": rule.get("take_profit_atr_multiplier"),
+                "min_bars": rule.get("min_bars_in_trade") or 0,
+                "risk_percent": rule.get("risk_percent", 1.0),
+            }
+            rule_configs.append(rc)
+            for atf in (rule.get("additional_timeframes") or []):
+                all_additional_tfs.add(atf)
+        additional_tfs = list(all_additional_tfs)
+
+        # Active rule tracking (which rule opened the current position)
+        active_rc = rule_configs[0]  # default for display until a trade opens
+        direction = active_rc["direction"]
+        entry_conditions = active_rc["entry_conditions"]
+        exit_conditions = active_rc["exit_conditions"]
+        sl_pips = active_rc["sl_pips"]
+        tp_pips = active_rc["tp_pips"]
+        sl_atr_mult = active_rc["sl_atr_mult"]
+        tp_atr_mult = active_rc["tp_atr_mult"]
+        min_bars = active_rc["min_bars"]
+        risk_percent = active_rc["risk_percent"]
+        state["strategy_rules"] = active_rc["rule"]
+
+        directions_str = "/".join(sorted(set(rc["direction"] for rc in rule_configs)))
+        if len(rule_configs) > 1:
+            _add_signal(state, "info", f"Multi-rule strategy: {len(rule_configs)} rules ({directions_str})")
 
         # Strategy context for DB trade recording
         strategy_id = strategy.get("id")  # None for in-memory strategies
         strategy_name = strategy.get("name", "Unknown")
-        rule_name = rule.get("name", "")
-        rule_index = 0
+        rule_name = active_rc["name"]
+        rule_index = active_rc["index"]
 
         _mt5(connector.select_symbol, symbol)
 
@@ -997,7 +1035,7 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
 
         sl_mode = "ATR" if sl_atr_mult else ("pips" if sl_pips else "none")
         tp_mode = "ATR" if tp_atr_mult else ("pips" if tp_pips else "none")
-        _add_signal(state, "start", f"Algo started: {symbol} / {timeframe} / {direction} / SL={sl_mode} TP={tp_mode} / risk={risk_percent}%")
+        _add_signal(state, "start", f"Algo started: {symbol} / {timeframe} / {directions_str} / SL={sl_mode} TP={tp_mode} / risk={risk_percent}%")
         if additional_tfs:
             _add_signal(state, "info", f"Multi-TF enabled: {', '.join(additional_tfs)}")
 
@@ -1104,32 +1142,53 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                 )
                 state["last_check"] = datetime.now(timezone.utc).isoformat()
 
-                # Evaluate each entry condition individually and store results
-                entry_results = []
-                for c in entry_conditions:
-                    passed = bool(evaluate_condition(row, prev_row, c))
-                    entry_results.append({
-                        "description": c.get("description", ""),
-                        "indicator": c.get("indicator", ""),
-                        "parameter": c.get("parameter", ""),
-                        "operator": c.get("operator", ""),
-                        "value": c.get("value"),
-                        "passed": passed,
-                    })
-                state["entry_conditions"] = entry_results
+                # ── Multi-rule evaluation ──
+                # When not in position: evaluate ALL rules' entry conditions, find best match
+                # When in position: evaluate the active rule's exit conditions
+                triggered_rc = None  # rule config that triggered entry (if any)
+                all_rules_entry_results = {}  # {rule_index: [results]}
 
-                # Evaluate each exit condition individually
+                if not state["in_position"]:
+                    # Evaluate entry conditions for each rule
+                    for rc in rule_configs:
+                        rc_entry_results = []
+                        for c in rc["entry_conditions"]:
+                            passed = bool(evaluate_condition(row, prev_row, c))
+                            rc_entry_results.append({
+                                "description": c.get("description", ""),
+                                "indicator": c.get("indicator", ""),
+                                "parameter": c.get("parameter", ""),
+                                "operator": c.get("operator", ""),
+                                "value": c.get("value"),
+                                "passed": passed,
+                            })
+                        all_rules_entry_results[rc["index"]] = rc_entry_results
+                        if all(r["passed"] for r in rc_entry_results) and len(rc["entry_conditions"]) > 0:
+                            if triggered_rc is None:
+                                triggered_rc = rc
+
+                    # Use the first rule's entry results for display (or triggered rule if found)
+                    display_rc = triggered_rc or active_rc
+                    entry_results = all_rules_entry_results.get(display_rc["index"], [])
+                    state["entry_conditions"] = entry_results
+                    state["active_rule_index"] = display_rc["index"]
+                else:
+                    entry_results = []
+                    state["entry_conditions"] = entry_results
+
+                # Evaluate exit conditions (only active rule when in position)
                 exit_results = []
-                for c in exit_conditions:
-                    passed = bool(evaluate_condition(row, prev_row, c))
-                    exit_results.append({
-                        "description": c.get("description", ""),
-                        "indicator": c.get("indicator", ""),
-                        "parameter": c.get("parameter", ""),
-                        "operator": c.get("operator", ""),
-                        "value": c.get("value"),
-                        "passed": passed,
-                    })
+                if state["in_position"]:
+                    for c in exit_conditions:
+                        passed = bool(evaluate_condition(row, prev_row, c))
+                        exit_results.append({
+                            "description": c.get("description", ""),
+                            "indicator": c.get("indicator", ""),
+                            "parameter": c.get("parameter", ""),
+                            "operator": c.get("operator", ""),
+                            "value": c.get("value"),
+                            "passed": passed,
+                        })
                 state["exit_conditions"] = exit_results
 
                 # Log when conditions change (deduped) or every ~2min as heartbeat
@@ -1157,19 +1216,45 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                         cond_details.append(f"{ind}.{param}={val}{mark}")
                     detail_str = " | ".join(cond_details) if cond_details else ""
                     tag = "check" if is_heartbeat and not cond_changed else "flip"
+                    rule_label = f" [{direction}]" if len(rule_configs) > 1 else ""
                     if state["in_position"]:
                         exit_pass = sum(1 for r in exit_results if r["passed"])
                         exit_total = len(exit_results)
                         bars_str = f" | bars={bars_in_trade}/{min_bars}" if min_bars > 0 else ""
-                        _add_signal(state, tag, f"{pos_status} | bid={bid:.5f} | {detail_str} | exit {exit_pass}/{exit_total}{bars_str}")
+                        _add_signal(state, tag, f"{pos_status}{rule_label} | bid={bid:.5f} | {detail_str} | exit {exit_pass}/{exit_total}{bars_str}")
                     else:
-                        _add_signal(state, tag, f"{pos_status} | bid={bid:.5f} | {detail_str} | entry {entry_pass}/{entry_total}")
+                        # Show which rules are close to triggering
+                        if len(rule_configs) > 1:
+                            rule_summaries = []
+                            for rc in rule_configs:
+                                rc_results = all_rules_entry_results.get(rc["index"], [])
+                                rc_pass = sum(1 for r in rc_results if r["passed"])
+                                rc_total = len(rc_results)
+                                rule_summaries.append(f"{rc['direction']}:{rc_pass}/{rc_total}")
+                            _add_signal(state, tag, f"{pos_status} | bid={bid:.5f} | {' '.join(rule_summaries)}")
+                        else:
+                            _add_signal(state, tag, f"{pos_status} | bid={bid:.5f} | {detail_str} | entry {entry_pass}/{entry_total}")
 
                 if not state["in_position"]:
-                    # Check if ALL entry conditions are met
-                    all_entry = all(r["passed"] for r in entry_results)
                     ml_pass = True  # default: allow trade if no ML model
-                    if all_entry and len(entry_conditions) > 0:
+                    if triggered_rc is not None:
+                        # A rule triggered — switch active context to that rule
+                        active_rc = triggered_rc
+                        direction = active_rc["direction"]
+                        entry_conditions = active_rc["entry_conditions"]
+                        exit_conditions = active_rc["exit_conditions"]
+                        sl_pips = active_rc["sl_pips"]
+                        tp_pips = active_rc["tp_pips"]
+                        sl_atr_mult = active_rc["sl_atr_mult"]
+                        tp_atr_mult = active_rc["tp_atr_mult"]
+                        min_bars = active_rc["min_bars"]
+                        risk_percent = active_rc["risk_percent"]
+                        rule_name = active_rc["name"]
+                        rule_index = active_rc["index"]
+                        state["strategy_rules"] = active_rc["rule"]
+                        state["active_rule_index"] = rule_index
+                        entry_results = all_rules_entry_results[rule_index]
+
                         # ── ML Confidence Gate ──
                         ml_price = price_info["ask"] if direction == "buy" else price_info["bid"]
                         ml_result = predict_confidence(state["indicators"], direction, ml_price)
@@ -1185,7 +1270,7 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
 
                     # ── LSTM Direction Prediction (informational) ──
                     lstm_result = {"direction": "neutral", "confidence": 0.0, "model_loaded": False}
-                    if all_entry and len(entry_conditions) > 0 and ml_pass:
+                    if triggered_rc is not None and ml_pass:
                         try:
                             lstm_result = lstm_predict_direction(df)
                             if lstm_result.get("model_loaded"):
@@ -1194,7 +1279,7 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                         except Exception as e:
                             _add_signal(state, "warn", f"LSTM prediction failed: {e}")
 
-                    if all_entry and len(entry_conditions) > 0 and ml_pass:
+                    if triggered_rc is not None and ml_pass:
                         try:
                             # Calculate ATR-based or pip-based SL/TP
                             import pandas as pd

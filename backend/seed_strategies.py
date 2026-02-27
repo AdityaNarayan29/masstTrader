@@ -879,12 +879,12 @@ STRATEGIES = [
     #  PINE SCRIPT CONVERSIONS
     # ═══════════════════════════════════════════
 
-    # 29. BTC Micro Momentum (Long) — Pine Script conversion
+    # 29. BTC Micro Momentum (Long + Short) — Pine Script conversion
     {
-        "name": "BTC Micro Momentum Long — M5",
+        "name": "BTC Micro Momentum — M5",
         "symbol": "BTCUSDm",
-        "raw_description": "Buy BTC when price is above EMA 50 on both 1H and 4H timeframes, RSI > 60, use 1.5x ATR stop loss and 2.5:1 reward-to-risk (3.75x ATR take profit). Exit when RSI drops below 45. Base timeframe M5 with multi-TF filter on 1H and 4H.",
-        "ai_explanation": "Converted from Pine Script 'BTC Micro Momentum'. Multi-timeframe trend filter: price must be above EMA 50 on both 1H and 4H charts to confirm the trend. RSI > 60 filters for momentum (not just trend). ATR-based risk management with 2.5:1 R:R. RSI < 45 exit catches momentum fade before hitting stop loss. Works best during trending BTC sessions.",
+        "raw_description": "Bidirectional BTC strategy. Long: price above EMA 50 on 1H+4H, RSI > 60, exit RSI < 45. Short: price below EMA 50 on 1H+4H, RSI < 40, exit RSI > 55. ATR-based SL (1.5x) and TP (3.75x = 2.5:1 R:R). Base timeframe M5.",
+        "ai_explanation": "Converted from Pine Script 'BTC Micro Momentum'. Two rules in one strategy: Long rule buys when multi-timeframe EMA 50 confirms uptrend + RSI momentum > 60. Short rule sells when EMA 50 confirms downtrend + RSI < 40. Both use ATR-based risk management with 2.5:1 R:R. The algo evaluates both rules on each candle and takes whichever direction triggers first.",
         "rules": [
             {
                 "name": "BTC Micro Momentum — Long",
@@ -906,17 +906,7 @@ STRATEGIES = [
                 "min_bars_in_trade": 3,
                 "additional_timeframes": ["1h", "4h"],
                 "risk_percent": 1.0
-            }
-        ],
-    },
-
-    # 30. BTC Micro Momentum (Short) — Pine Script conversion
-    {
-        "name": "BTC Micro Momentum Short — M5",
-        "symbol": "BTCUSDm",
-        "raw_description": "Sell BTC when price is below EMA 50 on both 1H and 4H timeframes, RSI < 40, use 1.5x ATR stop loss and 2.5:1 reward-to-risk (3.75x ATR take profit). Exit when RSI rises above 55. Base timeframe M5 with multi-TF filter on 1H and 4H.",
-        "ai_explanation": "Short side of the BTC Micro Momentum Pine Script. Multi-timeframe trend filter: price must be below EMA 50 on both 1H and 4H to confirm downtrend. RSI < 40 filters for bearish momentum. ATR-based risk management with 2.5:1 R:R. RSI > 55 exit catches momentum recovery before stop loss. Best during BTC selloffs and risk-off events.",
-        "rules": [
+            },
             {
                 "name": "BTC Micro Momentum — Short",
                 "timeframe": "5m",
