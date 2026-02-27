@@ -964,6 +964,10 @@ def main():
         );
     """)
 
+    # Clear old seeded strategies to prevent duplicates
+    conn.execute("DELETE FROM strategies")
+    conn.commit()
+
     now = datetime.now(timezone.utc).isoformat()
     count = 0
     symbols_seen = set()
