@@ -708,17 +708,33 @@ def run_backtest_endpoint(req: BacktestRequest):
                 additional_tfs_set.add(atf)
         additional_tfs = list(additional_tfs_set)
         if additional_tfs and connector and connector.is_connected:
+            import pandas as pd
             from backend.core.indicators import add_all_indicators as _add_ind
+            # Ensure datetime column is datetime type for merge_asof
+            if "datetime" in df.columns:
+                df["datetime"] = pd.to_datetime(df["datetime"])
             for atf in additional_tfs:
                 try:
                     df_atf = connector.get_history(bt_symbol, atf, req.bars)
                     df_atf = _add_ind(df_atf)
                     df_atf = df_atf.dropna()
                     if len(df_atf) > 0:
-                        last_atf = df_atf.iloc[-1]
+                        if "datetime" not in df_atf.columns:
+                            df_atf = df_atf.reset_index()
+                        df_atf["datetime"] = pd.to_datetime(df_atf["datetime"])
+                        # Rename indicator columns with timeframe suffix
+                        rename_cols = {}
+                        indicator_cols = []
                         for col in df_atf.columns:
                             if col not in ("open", "high", "low", "close", "volume", "datetime", "index"):
-                                df[f"{col}_{atf}"] = last_atf[col]
+                                rename_cols[col] = f"{col}_{atf}"
+                                indicator_cols.append(f"{col}_{atf}")
+                        df_atf = df_atf.rename(columns=rename_cols)
+                        # merge_asof: for each base-TF bar, get the latest higher-TF value
+                        keep_cols = ["datetime"] + indicator_cols
+                        df_atf_merge = df_atf[keep_cols].sort_values("datetime")
+                        df = df.sort_values("datetime")
+                        df = pd.merge_asof(df, df_atf_merge, on="datetime", direction="backward")
                 except Exception:
                     pass
 
@@ -1052,14 +1068,55 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                 if pos["symbol"] == symbol:
                     state["in_position"] = True
                     state["position_ticket"] = pos["ticket"]
-                    _add_signal(state, "info", f"Found existing position #{pos['ticket']} for {symbol} — resuming tracking")
+                    # MT5 returns type as int (0=buy, 1=sell), convert to string
+                    pos_type_raw = pos.get("type", 0)
+                    pos_direction = "buy" if pos_type_raw == 0 or pos_type_raw == "buy" else "sell"
+                    _add_signal(state, "info", f"Found existing {pos_direction} position #{pos['ticket']} for {symbol} — resuming tracking")
+
+                    # Try to match the resumed position to the correct rule
+                    resumed_rule_idx = 0
+                    try:
+                        existing_db_trade = get_open_algo_trade(symbol)
+                        if existing_db_trade and existing_db_trade.get("mt5_ticket") == pos["ticket"]:
+                            state["current_algo_trade_id"] = existing_db_trade["id"]
+                            resumed_rule_idx = existing_db_trade.get("rule_index", 0)
+                            _add_signal(state, "info", f"Resumed DB trade record {existing_db_trade['id'][:8]} (rule {resumed_rule_idx})")
+                    except Exception:
+                        pass
+
+                    # Match to correct rule — try DB rule_index first, then match by direction
+                    if resumed_rule_idx < len(rule_configs):
+                        active_rc = rule_configs[resumed_rule_idx]
+                    else:
+                        # Fallback: find rule matching the position direction
+                        active_rc = rule_configs[0]
+                        for rc in rule_configs:
+                            if rc["direction"] == pos_direction:
+                                active_rc = rc
+                                break
+
+                    # Update all active variables to match the resumed rule
+                    direction = active_rc["direction"]
+                    entry_conditions = active_rc["entry_conditions"]
+                    exit_conditions = active_rc["exit_conditions"]
+                    sl_pips = active_rc["sl_pips"]
+                    tp_pips = active_rc["tp_pips"]
+                    sl_atr_mult = active_rc["sl_atr_mult"]
+                    tp_atr_mult = active_rc["tp_atr_mult"]
+                    min_bars = active_rc["min_bars"]
+                    risk_percent = active_rc["risk_percent"]
+                    rule_name = active_rc["name"]
+                    rule_index = active_rc["index"]
+                    state["strategy_rules"] = active_rc["rule"]
+                    state["active_rule_index"] = rule_index
+
                     # Build a partial trade_state from MT5 position
                     state["trade_state"] = sanitize_for_json({
                         "ticket": pos["ticket"],
                         "entry_price": pos["open_price"],
                         "sl_price": pos.get("stop_loss") or None,
                         "tp_price": pos.get("take_profit") or None,
-                        "direction": pos.get("type", direction),
+                        "direction": pos_direction,
                         "volume": pos.get("volume", volume),
                         "entry_time": pos.get("open_time", ""),
                         "bars_since_entry": 0,
@@ -1067,14 +1124,6 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                         "sl_atr_mult": sl_atr_mult,
                         "tp_atr_mult": tp_atr_mult,
                     })
-                    # Resume DB trade record if one exists for this ticket
-                    try:
-                        existing_db_trade = get_open_algo_trade(symbol)
-                        if existing_db_trade and existing_db_trade.get("mt5_ticket") == pos["ticket"]:
-                            state["current_algo_trade_id"] = existing_db_trade["id"]
-                            _add_signal(state, "info", f"Resumed DB trade record {existing_db_trade['id'][:8]}")
-                    except Exception:
-                        pass
                     break
         except Exception:
             pass
@@ -1410,6 +1459,8 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                                         state["position_ticket"] = None
                                         state["trade_state"] = None
                                         bars_in_trade = 0
+                                        # Reset active rule so next iteration evaluates all rules fresh
+                                        active_rc = rule_configs[0]
                                     else:
                                         _add_signal(state, "error", f"Close failed: {close_result.get('message', 'unknown')}")
                             except Exception as e:
@@ -1433,6 +1484,8 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                             state["position_ticket"] = None
                             state["trade_state"] = None
                             bars_in_trade = 0
+                            # Reset active rule so next iteration evaluates all rules fresh
+                            active_rc = rule_configs[0]
 
             except Exception as e:
                 import traceback

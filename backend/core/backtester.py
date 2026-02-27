@@ -40,8 +40,12 @@ def evaluate_condition(row: pd.Series, prev_row: pd.Series, condition: dict) -> 
 
     if operator == ">":
         return current_val > target_num
+    elif operator == ">=":
+        return current_val >= target_num
     elif operator == "<":
         return current_val < target_num
+    elif operator == "<=":
+        return current_val <= target_num
     elif operator == "==":
         return abs(current_val - target_num) < 1e-8
     elif operator == "crosses_above":

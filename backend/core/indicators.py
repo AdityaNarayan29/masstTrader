@@ -112,7 +112,7 @@ def add_volume_indicators(df: pd.DataFrame) -> pd.DataFrame:
         close=df["close"], volume=vol
     ).on_balance_volume()
     df["Volume_SMA_20"] = vol.rolling(window=20).mean()
-    df["Volume_ratio"] = vol / df["Volume_SMA_20"]
+    df["Volume_ratio"] = vol / df["Volume_SMA_20"].replace(0, np.nan)
     return df
 
 
