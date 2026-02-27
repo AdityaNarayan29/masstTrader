@@ -138,6 +138,26 @@ def _resolve_column(indicator: str, parameter: str) -> str:
     return f"{indicator}_{parameter}"
 
 
+def _detect_pip_multiplier(df: pd.DataFrame) -> float:
+    """Detect the pip multiplier from price data.
+    Forex 4-decimal (EURUSD, GBPUSD): 10000
+    Forex 2-decimal (USDJPY, EURJPY): 100
+    Gold (XAUUSD ~2000): 100
+    BTC (BTCUSD ~90000): 1 (use raw price diff as "pips")
+    """
+    if len(df) == 0:
+        return 10000
+    sample_price = float(df["close"].iloc[-1])
+    if sample_price > 10000:  # BTC, large indices
+        return 1
+    elif sample_price > 500:   # Gold
+        return 100
+    elif sample_price > 50:    # JPY pairs
+        return 100
+    else:                      # Standard forex (EURUSD ~1.10)
+        return 10000
+
+
 def run_backtest(
     df: pd.DataFrame,
     strategy_rule: dict,
@@ -159,7 +179,7 @@ def run_backtest(
     """
     # Add indicators
     df = add_all_indicators(df)
-    df = df.dropna().reset_index()
+    df = df.dropna(subset=["close"]).reset_index()
 
     # Build list of rule configs
     rules_list = all_rules if all_rules else [strategy_rule]
@@ -176,6 +196,8 @@ def run_backtest(
             "tp_atr_mult": rule.get("take_profit_atr_multiplier"),
             "min_bars": rule.get("min_bars_in_trade") or 0,
         })
+
+    pip_mult = _detect_pip_multiplier(df)
 
     balance = initial_balance
     equity_curve = [balance]
@@ -213,11 +235,11 @@ def run_backtest(
                     # Compute effective SL/TP from ATR at entry time
                     atr_val = float(row["ATR_14"]) if "ATR_14" in row.index and not pd.isna(row.get("ATR_14")) else 0
                     if rc["sl_atr_mult"] and atr_val > 0:
-                        effective_sl_pips = (atr_val * rc["sl_atr_mult"]) * 10000
+                        effective_sl_pips = (atr_val * rc["sl_atr_mult"]) * pip_mult
                     else:
                         effective_sl_pips = rc["sl_pips"]
                     if rc["tp_atr_mult"] and atr_val > 0:
-                        effective_tp_pips = (atr_val * rc["tp_atr_mult"]) * 10000
+                        effective_tp_pips = (atr_val * rc["tp_atr_mult"]) * pip_mult
                     else:
                         effective_tp_pips = rc["tp_pips"]
                     break  # first matching rule wins
@@ -227,9 +249,9 @@ def run_backtest(
             current_price = row["close"]
             # PnL direction depends on whether it's a buy or sell
             if active_direction == "buy":
-                pnl_pips = (current_price - entry_price) * 10000
+                pnl_pips = (current_price - entry_price) * pip_mult
             else:
-                pnl_pips = (entry_price - current_price) * 10000
+                pnl_pips = (entry_price - current_price) * pip_mult
 
             exit_reason = None
 
@@ -283,7 +305,22 @@ def run_backtest(
                 in_position = False
                 active_rc = None
 
-        equity_curve.append(balance)
+        # Equity curve: include unrealized PnL when in position
+        if in_position and active_rc is not None:
+            current_price = row["close"]
+            if active_direction == "buy":
+                unrealized_pips = (current_price - entry_price) * pip_mult
+            else:
+                unrealized_pips = (entry_price - current_price) * pip_mult
+            risk_amount = balance * (risk_per_trade / 100)
+            sl_for_unreal = effective_sl_pips if effective_sl_pips and effective_sl_pips > 0 else None
+            if sl_for_unreal:
+                unrealized_pnl = risk_amount * (unrealized_pips / sl_for_unreal)
+            else:
+                unrealized_pnl = risk_amount * (unrealized_pips / 100)
+            equity_curve.append(balance + unrealized_pnl)
+        else:
+            equity_curve.append(balance)
 
     # Calculate statistics
     stats = _calculate_stats(trades, initial_balance, balance, equity_curve)
@@ -327,7 +364,13 @@ def _calculate_stats(
             max_dd = dd
 
     # Sharpe ratio (simplified)
-    returns = np.diff(equity_curve) / equity_curve[:-1] if len(equity_curve) > 1 else [0]
+    eq_arr = np.array(equity_curve, dtype=np.float64)
+    if len(eq_arr) > 1:
+        denom = eq_arr[:-1]
+        denom = np.where(denom == 0, 1, denom)  # guard division by zero
+        returns = np.diff(eq_arr) / denom
+    else:
+        returns = np.array([0.0])
     sharpe = (np.mean(returns) / np.std(returns) * np.sqrt(252)) if np.std(returns) > 0 else 0
 
     return {

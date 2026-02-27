@@ -1516,7 +1516,7 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                 close_algo_trade(state["current_algo_trade_id"], {
                     "exit_time": datetime.now(tz.utc).isoformat(),
                     "exit_reason": "algo_stopped",
-                    "bars_held": bars_in_trade if "bars_in_trade" in dir() else 0,
+                    "bars_held": bars_in_trade,
                 })
             except Exception:
                 pass
@@ -1579,9 +1579,17 @@ def algo_start(req: AlgoStartRequest):
     rules = current_strategy.get("rules", [])
     effective_tf = req.timeframe
     if rules:
+        # Use the first rule's timeframe; all rules should share the same base TF
         rule_tf = rules[0].get("timeframe")
         if rule_tf:
             effective_tf = rule_tf
+        # Warn if rules have mismatched timeframes
+        tfs = set(r.get("timeframe", effective_tf) for r in rules)
+        if len(tfs) > 1:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Multi-rule strategy has mismatched timeframes: {tfs}. All rules must use the same base timeframe."
+            )
 
     # Re-check with effective symbol
     with _instances_lock:
