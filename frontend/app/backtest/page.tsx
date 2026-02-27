@@ -49,6 +49,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { StrategySelect, toUiTimeframe } from "@/components/strategy-select";
 import {
   ChartContainer,
   ChartTooltip,
@@ -92,7 +93,7 @@ interface BacktestCandle {
 }
 
 export default function BacktestPage() {
-  const [strategies, setStrategies] = useState<Array<{ id: string; name: string; symbol: string }>>([]);
+  const [strategies, setStrategies] = useState<Array<{ id: string; name: string; symbol: string; timeframe?: string }>>([]);
   const [selectedStrategyId, setSelectedStrategyId] = useState("__current__");
   const [balance, setBalance] = useState(10000);
   const [risk, setRisk] = useState(1);
@@ -333,19 +334,19 @@ export default function BacktestPage() {
             {strategies.length > 0 && (
               <div className="space-y-2 w-full sm:w-auto">
                 <Label>Strategy</Label>
-                <Select value={selectedStrategyId} onValueChange={setSelectedStrategyId}>
-                  <SelectTrigger className="w-full sm:w-56">
-                    <SelectValue placeholder="Use current strategy" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__current__">Current (in-memory)</SelectItem>
-                    {strategies.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name} ({s.symbol})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <StrategySelect
+                  strategies={strategies}
+                  value={selectedStrategyId}
+                  onValueChange={(id) => {
+                    setSelectedStrategyId(id);
+                    const strat = strategies.find((s) => s.id === id);
+                    if (strat?.timeframe) {
+                      const uiTf = toUiTimeframe(strat.timeframe);
+                      if (["5m", "15m", "30m", "1h", "4h", "1d"].includes(uiTf)) setTimeframe(uiTf);
+                    }
+                  }}
+                  placeholder="Use current strategy"
+                />
               </div>
             )}
             <div className="space-y-2 w-full sm:w-auto">

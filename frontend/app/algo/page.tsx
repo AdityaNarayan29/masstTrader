@@ -6,6 +6,7 @@ import { useLiveStream } from "@/hooks/use-live-stream";
 import { LiveChart, type TradeMarkerData, type PositionOverlay } from "@/components/live-chart";
 import { Loader2 } from "lucide-react";
 import { SymbolCombobox } from "@/components/symbol-combobox";
+import { StrategySelect, toUiTimeframe } from "@/components/strategy-select";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -20,9 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -77,23 +76,37 @@ interface FullStrategy {
   ai_explanation: string;
 }
 
-// Convert MT5 timeframe format ("M5", "H1") → frontend format ("5m", "1h")
-const MT5_TO_UI_TF: Record<string, string> = {
-  M1: "1m", M5: "5m", M15: "15m", M30: "30m",
-  H1: "1h", H4: "4h", D1: "1d", W1: "1w",
-};
-function toUiTimeframe(mt5tf: string): string {
-  return MT5_TO_UI_TF[mt5tf] || mt5tf.toLowerCase();
-}
-
 export default function AlgoPage() {
   // Strategy & algo config
   type StrategyItem = Awaited<ReturnType<typeof api.strategies.list>>[number];
   const [strategies, setStrategies] = useState<StrategyItem[]>([]);
-  const [strategyId, setStrategyId] = useState("__current__");
-  const [symbol, setSymbol] = useState("");
-  const [timeframe, setTimeframe] = useState("5m");
+  const [strategyId, _setStrategyId] = useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("algo_strategyId") || "__current__";
+    return "__current__";
+  });
+  const [symbol, _setSymbol] = useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("algo_symbol") || "";
+    return "";
+  });
+  const [timeframe, _setTimeframe] = useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("algo_timeframe") || "5m";
+    return "5m";
+  });
   const [volume, setVolume] = useState(0.01);
+
+  // Wrap setters to persist to localStorage
+  const setStrategyId = (id: string) => {
+    _setStrategyId(id);
+    if (typeof window !== "undefined") localStorage.setItem("algo_strategyId", id);
+  };
+  const setSymbol = (s: string) => {
+    _setSymbol(s);
+    if (typeof window !== "undefined") localStorage.setItem("algo_symbol", s);
+  };
+  const setTimeframe = (tf: string) => {
+    _setTimeframe(tf);
+    if (typeof window !== "undefined") localStorage.setItem("algo_timeframe", tf);
+  };
 
   // Full strategy (with all rules) — fetched when strategy is selected
   const [fullStrategy, setFullStrategy] = useState<FullStrategy | null>(null);
@@ -241,18 +254,6 @@ export default function AlgoPage() {
     return strategies.find((s) => s.id === strategyId) ?? null;
   }, [strategyId, strategies]);
 
-  // Strategies filtered to the selected symbol
-  const filteredStrategies = useMemo(() => {
-    if (!symbol) return strategies;
-    return strategies.filter((s) => s.symbol === symbol);
-  }, [strategies, symbol]);
-
-  // Strategies from other symbols (universal strategies work on any symbol)
-  const otherStrategies = useMemo(() => {
-    if (!symbol) return [];
-    return strategies.filter((s) => s.symbol !== symbol);
-  }, [strategies, symbol]);
-
   // Handle independent symbol change (from combobox)
   const handleSymbolChange = (newSymbol: string) => {
     setSymbol(newSymbol);
@@ -271,11 +272,19 @@ export default function AlgoPage() {
 
   // ── Effects ──
 
-  // Load saved strategies, auto-select first
+  // Load saved strategies; restore persisted selection or fall back to first
   useEffect(() => {
     api.strategies.list().then((list) => {
       setStrategies(list);
-      if (list.length > 0) {
+      // If we have a persisted strategyId that exists in the list, keep it
+      const persisted = typeof window !== "undefined" ? localStorage.getItem("algo_strategyId") : null;
+      const persistedExists = persisted && list.some((s) => s.id === persisted);
+      if (persistedExists) {
+        // Persisted selection is valid — ensure symbol/tf stay in sync
+        const match = list.find((s) => s.id === persisted)!;
+        if (!symbol && match.symbol) setSymbol(match.symbol);
+      } else if (list.length > 0) {
+        // No valid persisted selection — fall back to first strategy
         const first = list[0];
         setStrategyId(first.id);
         if (first.symbol) setSymbol(first.symbol);
@@ -354,8 +363,9 @@ export default function AlgoPage() {
     autoLoadedRef.current = true;
     const algoSym = polledAlgo.symbol;
     const algoTf = polledAlgo.timeframe || "1h";
-    // Sync local state to match running algo
+    // Sync local state to match running algo (including strategy)
     setSymbol(algoSym);
+    if (polledAlgo.strategy_id) setStrategyId(polledAlgo.strategy_id);
     const uiTf = toUiTimeframe(algoTf);
     if (["1m", "5m", "15m", "30m", "1h", "4h"].includes(uiTf)) setTimeframe(uiTf);
     setLoadingChart(true);
@@ -553,45 +563,21 @@ export default function AlgoPage() {
             {strategies.length > 0 && !(symbol in allAlgoInstances) && (
               <div className="space-y-2">
                 <Label>Strategy</Label>
-                <Select value={strategyId} onValueChange={(id) => {
-                  setStrategyId(id);
-                  const strat = strategies.find((s) => s.id === id);
-                  if (strat) {
-                    // Only sync timeframe, NOT symbol — user's symbol choice is kept
-                    if (strat.timeframe) {
-                      const uiTf = toUiTimeframe(strat.timeframe);
-                      if (["1m", "5m", "15m", "30m", "1h", "4h"].includes(uiTf)) setTimeframe(uiTf);
+                <StrategySelect
+                  strategies={strategies}
+                  value={strategyId}
+                  onValueChange={(id) => {
+                    setStrategyId(id);
+                    const strat = strategies.find((s) => s.id === id);
+                    if (strat) {
+                      if (strat.timeframe) {
+                        const uiTf = toUiTimeframe(strat.timeframe);
+                        if (["1m", "5m", "15m", "30m", "1h", "4h"].includes(uiTf)) setTimeframe(uiTf);
+                      }
                     }
-                  }
-                }}>
-                  <SelectTrigger className="w-full sm:w-56">
-                    <SelectValue placeholder="Select strategy" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__current__">Current (in-memory)</SelectItem>
-                    {filteredStrategies.length > 0 && (
-                      <SelectGroup>
-                        <SelectLabel>For {symbol}</SelectLabel>
-                        {filteredStrategies.map((s) => (
-                          <SelectItem key={s.id} value={s.id}>
-                            {s.name.replace(/ — [A-Z]+.*$/i, "")}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    )}
-                    {/* Group other strategies by their symbol */}
-                    {Array.from(new Set(otherStrategies.map((s) => s.symbol))).map((sym) => (
-                      <SelectGroup key={sym}>
-                        <SelectLabel>{sym}</SelectLabel>
-                        {otherStrategies.filter((s) => s.symbol === sym).map((s) => (
-                          <SelectItem key={s.id} value={s.id}>
-                            {s.name.replace(/ — [A-Z]+.*$/i, "")}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  }}
+                  activeSymbol={symbol}
+                />
               </div>
             )}
             {selectedStrategy ? (

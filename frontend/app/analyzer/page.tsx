@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { StrategySelect } from "@/components/strategy-select";
 import { Separator } from "@/components/ui/separator";
 import {
   ChartContainer,
@@ -132,19 +133,12 @@ export default function AnalyzerPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Select value={strategyId} onValueChange={setStrategyId}>
-              <SelectTrigger className="w-full sm:w-72">
-                <SelectValue placeholder="Select strategy" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__current__">Current (in-memory)</SelectItem>
-                {strategies.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.name} ({s.symbol})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <StrategySelect
+              strategies={strategies}
+              value={strategyId}
+              onValueChange={setStrategyId}
+              className="w-full sm:w-72"
+            />
           </CardContent>
         </Card>
       )}
