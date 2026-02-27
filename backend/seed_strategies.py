@@ -682,6 +682,198 @@ STRATEGIES = [
             }
         ],
     },
+
+    # ═══════════════════════════════════════════
+    #  SMART MONEY STRATEGIES
+    # ═══════════════════════════════════════════
+
+    # 23. Liquidity Sweep Reversal — EURUSD M5
+    {
+        "name": "Liquidity Sweep Reversal — EURUSD M5",
+        "symbol": "EURUSDm",
+        "raw_description": "Buy when a bullish liquidity sweep is detected, price is above AVWAP anchored to swing low, cumulative volume delta is positive, and RSI below 65. Exit when price reaches AVWAP anchored to swing high. Use 1.5x ATR stop loss and 3x ATR take profit.",
+        "ai_explanation": "Smart money reversal: enters after institutional stop hunts below swing lows. The sweep signals large players grabbed liquidity and are likely to push price higher. AVWAP from swing low acts as dynamic support, positive cumulative delta confirms buying pressure. Targets AVWAP from swing high as resistance.",
+        "rules": [
+            {
+                "name": "Bullish Liquidity Sweep",
+                "timeframe": "5m",
+                "direction": "buy",
+                "description": "Enter on bullish sweep with AVWAP support and volume delta confirmation",
+                "entry_conditions": [
+                    {"indicator": "LiqSweep", "parameter": "bull", "operator": ">", "value": 0, "description": "Bullish liquidity sweep detected (swept swing low, closed above)"},
+                    {"indicator": "close", "parameter": "value", "operator": ">", "value": "AVWAP_low", "description": "Price above AVWAP anchored to swing low (dynamic support holds)"},
+                    {"indicator": "VolumeDelta", "parameter": "cumulative", "operator": ">", "value": 0, "description": "Cumulative volume delta positive (net buying pressure)"},
+                    {"indicator": "RSI", "parameter": "value", "operator": "<", "value": 65, "description": "RSI below 65 (not overbought, room to run)"}
+                ],
+                "exit_conditions": [
+                    {"indicator": "close", "parameter": "value", "operator": ">", "value": "AVWAP_high", "description": "Price reaches AVWAP from swing high (resistance target)"}
+                ],
+                "stop_loss_atr_multiplier": 1.5,
+                "take_profit_atr_multiplier": 3.0,
+                "stop_loss_pips": None,
+                "take_profit_pips": None,
+                "min_bars_in_trade": 3,
+                "risk_percent": 1.0
+            }
+        ],
+    },
+
+    # 24. Volume Profile POC Bounce — EURUSD M15
+    {
+        "name": "Volume Profile POC Bounce — EURUSD M15",
+        "symbol": "EURUSDm",
+        "raw_description": "Buy when price is near the POC (VP_position between -0.5 and 0.5), volume delta SMA is positive, and RSI between 40-60. Exit when price reaches Value Area High. Use 1.5x ATR stop loss and 2.5x ATR take profit.",
+        "ai_explanation": "Volume Profile mean-reversion: price gravitates to the Point of Control (highest-traded price level). When price returns to POC with positive volume delta, it signals accumulation by institutional players. RSI filter ensures entry in a neutral zone. Targets the Value Area High as natural resistance.",
+        "rules": [
+            {
+                "name": "POC Bounce Long",
+                "timeframe": "15m",
+                "direction": "buy",
+                "description": "Buy at POC with volume delta confirmation",
+                "entry_conditions": [
+                    {"indicator": "VolumeProfile", "parameter": "position", "operator": ">", "value": -0.5, "description": "Price near or above POC (within 0.5 ATR below)"},
+                    {"indicator": "VolumeProfile", "parameter": "position", "operator": "<", "value": 0.5, "description": "Price not too far above POC (within 0.5 ATR above)"},
+                    {"indicator": "VolumeDelta", "parameter": "sma", "operator": ">", "value": 0, "description": "Smoothed volume delta positive (buying pressure)"},
+                    {"indicator": "RSI", "parameter": "value", "operator": ">", "value": 40, "description": "RSI above 40 (not oversold extreme)"},
+                    {"indicator": "RSI", "parameter": "value", "operator": "<", "value": 60, "description": "RSI below 60 (neutral zone)"}
+                ],
+                "exit_conditions": [
+                    {"indicator": "close", "parameter": "value", "operator": ">", "value": "VP_VAH", "description": "Price reaches Value Area High"}
+                ],
+                "stop_loss_atr_multiplier": 1.5,
+                "take_profit_atr_multiplier": 2.5,
+                "stop_loss_pips": None,
+                "take_profit_pips": None,
+                "min_bars_in_trade": 3,
+                "risk_percent": 1.0
+            }
+        ],
+    },
+
+    # 25. Smart Money Trend Continuation — GBPUSD M5
+    {
+        "name": "Smart Money Trend Continuation — GBPUSD M5",
+        "symbol": "GBPUSDm",
+        "raw_description": "Buy when price is above EMA 50, bullish liquidity sweep fires, cumulative delta positive, and price above AVWAP from swing low. Exit when RSI > 75. Use 2x ATR SL and 3x ATR TP.",
+        "ai_explanation": "Trend continuation after a stop hunt: in an uptrend (price > EMA 50), a bullish liquidity sweep sweeps out weak longs below swing low, smart money absorbs selling and pushes price up. Cumulative delta confirms absorption. AVWAP from swing low is the institutional accumulation level. Best during London session.",
+        "rules": [
+            {
+                "name": "Smart Money Trend Buy",
+                "timeframe": "5m",
+                "direction": "buy",
+                "description": "Trend continuation after bullish liquidity sweep on GBPUSD",
+                "entry_conditions": [
+                    {"indicator": "close", "parameter": "value", "operator": ">", "value": "EMA_50", "description": "Price above EMA 50 (uptrend)"},
+                    {"indicator": "LiqSweep", "parameter": "bull", "operator": ">", "value": 0, "description": "Bullish liquidity sweep detected"},
+                    {"indicator": "VolumeDelta", "parameter": "cumulative", "operator": ">", "value": 0, "description": "Cumulative delta positive (buying absorption)"},
+                    {"indicator": "close", "parameter": "value", "operator": ">", "value": "AVWAP_low", "description": "Price above AVWAP from swing low"}
+                ],
+                "exit_conditions": [
+                    {"indicator": "RSI", "parameter": "value", "operator": ">", "value": 75, "description": "RSI above 75 (overbought)"}
+                ],
+                "stop_loss_atr_multiplier": 2.0,
+                "take_profit_atr_multiplier": 3.0,
+                "stop_loss_pips": None,
+                "take_profit_pips": None,
+                "min_bars_in_trade": 5,
+                "risk_percent": 1.0
+            }
+        ],
+    },
+
+    # 26. Bearish Sweep + Volume Divergence — USDJPY M15
+    {
+        "name": "Bearish Sweep + Volume Divergence — USDJPY M15",
+        "symbol": "USDJPYm",
+        "raw_description": "Sell when a bearish liquidity sweep is detected, price is below AVWAP from swing high, volume delta is negative, and ADX > 20. Exit when price reaches AVWAP from swing low. Use 2x ATR SL and 3x ATR TP.",
+        "ai_explanation": "Bearish smart money play: detects stop hunts above swing highs that trap breakout buyers, then shorts as price reverses. AVWAP from swing high confirms institutional distribution. Negative volume delta shows selling pressure dominating. ADX filter ensures sufficient volatility for the move.",
+        "rules": [
+            {
+                "name": "Bearish Sweep Short",
+                "timeframe": "15m",
+                "direction": "sell",
+                "description": "Short after bearish liquidity sweep on USDJPY",
+                "entry_conditions": [
+                    {"indicator": "LiqSweep", "parameter": "bear", "operator": ">", "value": 0, "description": "Bearish liquidity sweep detected (swept swing high, closed below)"},
+                    {"indicator": "close", "parameter": "value", "operator": "<", "value": "AVWAP_high", "description": "Price below AVWAP from swing high (distribution confirmed)"},
+                    {"indicator": "VolumeDelta", "parameter": "delta", "operator": "<", "value": 0, "description": "Current bar volume delta negative (selling pressure)"},
+                    {"indicator": "ADX", "parameter": "value", "operator": ">", "value": 20, "description": "ADX above 20 (sufficient trend strength)"}
+                ],
+                "exit_conditions": [
+                    {"indicator": "close", "parameter": "value", "operator": "<", "value": "AVWAP_low", "description": "Price reaches AVWAP from swing low (support target)"}
+                ],
+                "stop_loss_atr_multiplier": 2.0,
+                "take_profit_atr_multiplier": 3.0,
+                "stop_loss_pips": None,
+                "take_profit_pips": None,
+                "min_bars_in_trade": 3,
+                "risk_percent": 1.0
+            }
+        ],
+    },
+
+    # 27. Gold Value Area Breakout — XAU H1
+    {
+        "name": "Gold Value Area Breakout — XAU H1",
+        "symbol": "XAUUSDm",
+        "raw_description": "Buy Gold when price breaks above Value Area High, volume delta SMA is positive, ADX > 25, and close > EMA 50. Exit when ADX < 20. Use 2.5x ATR SL and 4x ATR TP.",
+        "ai_explanation": "Volume Profile breakout on Gold H1: when price pushes above the Value Area High with positive volume delta and strong trend (ADX > 25), it signals a genuine breakout. Gold trends strongly during risk events and this captures those moves. Wide ATR stops accommodate Gold volatility.",
+        "rules": [
+            {
+                "name": "Gold VA Breakout",
+                "timeframe": "1h",
+                "direction": "buy",
+                "description": "Value Area High breakout on Gold with volume delta and trend confirmation",
+                "entry_conditions": [
+                    {"indicator": "close", "parameter": "value", "operator": ">", "value": "VP_VAH", "description": "Price above Value Area High (breakout)"},
+                    {"indicator": "VolumeDelta", "parameter": "sma", "operator": ">", "value": 0, "description": "Smoothed volume delta positive (buying pressure supports breakout)"},
+                    {"indicator": "ADX", "parameter": "value", "operator": ">", "value": 25, "description": "ADX above 25 (strong trend)"},
+                    {"indicator": "close", "parameter": "value", "operator": ">", "value": "EMA_50", "description": "Price above EMA 50 (bullish structure)"}
+                ],
+                "exit_conditions": [
+                    {"indicator": "ADX", "parameter": "value", "operator": "<", "value": 20, "description": "ADX below 20 (trend exhaustion)"}
+                ],
+                "stop_loss_atr_multiplier": 2.5,
+                "take_profit_atr_multiplier": 4.0,
+                "stop_loss_pips": None,
+                "take_profit_pips": None,
+                "min_bars_in_trade": 3,
+                "risk_percent": 1.0
+            }
+        ],
+    },
+
+    # 28. BTC Sweep + Delta Momentum — M15
+    {
+        "name": "BTC Sweep + Delta Momentum — M15",
+        "symbol": "BTCUSDm",
+        "raw_description": "Buy BTC when bullish liquidity sweep fires, cumulative delta positive, price above VP POC, and RSI between 30-65. Exit when close > VP VAH. Use 2.5x ATR SL and 4x ATR TP.",
+        "ai_explanation": "BTC smart money strategy: crypto markets are full of liquidity sweeps as exchanges hunt stops. After a bullish sweep below swing low, if cumulative delta shows net buying and price is above POC, it signals whale accumulation. BTC high volatility needs wider ATR stops. Targets Value Area High.",
+        "rules": [
+            {
+                "name": "BTC Smart Money Buy",
+                "timeframe": "15m",
+                "direction": "buy",
+                "description": "BTC entry after bullish sweep with delta and volume profile confirmation",
+                "entry_conditions": [
+                    {"indicator": "LiqSweep", "parameter": "bull", "operator": ">", "value": 0, "description": "Bullish liquidity sweep on BTC"},
+                    {"indicator": "VolumeDelta", "parameter": "cumulative", "operator": ">", "value": 0, "description": "Cumulative delta positive (whale accumulation)"},
+                    {"indicator": "close", "parameter": "value", "operator": ">", "value": "VP_POC", "description": "Price above POC (bullish positioning)"},
+                    {"indicator": "RSI", "parameter": "value", "operator": ">", "value": 30, "description": "RSI above 30 (not deeply oversold)"},
+                    {"indicator": "RSI", "parameter": "value", "operator": "<", "value": 65, "description": "RSI below 65 (room to run)"}
+                ],
+                "exit_conditions": [
+                    {"indicator": "close", "parameter": "value", "operator": ">", "value": "VP_VAH", "description": "Price reaches Value Area High"}
+                ],
+                "stop_loss_atr_multiplier": 2.5,
+                "take_profit_atr_multiplier": 4.0,
+                "stop_loss_pips": None,
+                "take_profit_pips": None,
+                "min_bars_in_trade": 3,
+                "risk_percent": 1.0
+            }
+        ],
+    },
 ]
 
 

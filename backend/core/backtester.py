@@ -95,6 +95,25 @@ def _resolve_column(indicator: str, parameter: str) -> str:
         ("ADX", "DI_minus"): "DI_minus",
         ("Volume", "OBV"): "OBV",
         ("Volume", "ratio"): "Volume_ratio",
+        # Smart Money — Liquidity Sweep
+        ("LiqSweep", "bull"): "Liq_sweep_bull",
+        ("LiqSweep", "bear"): "Liq_sweep_bear",
+        ("LiqSweep", "swing_high"): "Swing_high",
+        ("LiqSweep", "swing_low"): "Swing_low",
+        # Smart Money — Anchored VWAP
+        ("AVWAP", "high"): "AVWAP_high",
+        ("AVWAP", "low"): "AVWAP_low",
+        # Smart Money — Volume Delta
+        ("VolumeDelta", "delta"): "Volume_delta",
+        ("VolumeDelta", "cumulative"): "Cumulative_delta",
+        ("VolumeDelta", "sma"): "Delta_SMA_14",
+        ("VolumeDelta", "value"): "Volume_delta",
+        # Smart Money — Volume Profile
+        ("VolumeProfile", "poc"): "VP_POC",
+        ("VolumeProfile", "vah"): "VP_VAH",
+        ("VolumeProfile", "val"): "VP_VAL",
+        ("VolumeProfile", "position"): "VP_position",
+        ("VolumeProfile", "value"): "VP_POC",
     }
 
     # Direct column name match (e.g., "EMA_50")

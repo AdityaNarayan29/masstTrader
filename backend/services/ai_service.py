@@ -10,10 +10,17 @@ from config.settings import settings
 # Allowed indicators for strategy parsing (whitelist)
 _VALID_INDICATORS = {
     "RSI", "MACD", "ATR", "ADX", "Stochastic", "Volume",
+    "LiqSweep", "AVWAP", "VolumeDelta", "VolumeProfile",
 }
 # Also allow EMA_{n}, SMA_{n}, Bollinger
 _INDICATOR_PATTERN = re.compile(
-    r"^(RSI|MACD|ATR|ADX|Stochastic|Volume|EMA_\d+|SMA_\d+|Bollinger|close|open|high|low)(_\d+[mhdw])?$"
+    r"^(RSI|MACD|ATR|ADX|Stochastic|Volume|EMA_\d+|SMA_\d+|Bollinger"
+    r"|LiqSweep|AVWAP|VolumeDelta|VolumeProfile"
+    r"|Liq_sweep_bull|Liq_sweep_bear|Swing_high|Swing_low"
+    r"|AVWAP_high|AVWAP_low"
+    r"|Volume_delta|Cumulative_delta|Delta_SMA_\d+"
+    r"|VP_POC|VP_VAH|VP_VAL|VP_position"
+    r"|close|open|high|low)(_\d+[mhdw])?$"
 )
 _VALID_OPERATORS = {">", "<", ">=", "<=", "==", "crosses_above", "crosses_below"}
 
@@ -111,6 +118,22 @@ Output ONLY valid JSON with this schema:
 
 Available indicators: RSI (parameter: value), MACD (parameters: line, signal, histogram), EMA_{period}, SMA_{period}, Bollinger (parameters: upper, middle, lower, width), ATR (parameter: value), Stochastic (parameters: K, D), ADX (parameters: value, DI_plus, DI_minus), Volume (parameters: OBV, ratio).
 Price columns: close, open, high, low (parameter: value).
+
+Smart Money indicators:
+- LiqSweep (parameters: bull, bear, swing_high, swing_low) -- detects liquidity sweeps at swing levels.
+  "bull" = 1 when price swept a swing low then closed above (bullish). "bear" = 1 when price swept a swing high then closed below (bearish).
+  "swing_high" and "swing_low" = current swing level price values.
+  Example entry: {"indicator": "LiqSweep", "parameter": "bull", "operator": ">", "value": 0, "description": "Bullish liquidity sweep detected"}
+- AVWAP (parameters: high, low) -- Volume-Weighted Average Price anchored to swing points.
+  "high" = VWAP from last swing high, "low" = VWAP from last swing low. Acts as dynamic support/resistance.
+  Example: {"indicator": "close", "parameter": "value", "operator": ">", "value": "AVWAP_low", "description": "Price above AVWAP anchored to swing low"}
+- VolumeDelta (parameters: delta, cumulative, sma) -- approximated buy/sell volume pressure from OHLCV.
+  "delta" = per-bar net volume (positive = buying pressure). "cumulative" = running sum. "sma" = smoothed delta.
+  Example: {"indicator": "VolumeDelta", "parameter": "cumulative", "operator": ">", "value": 0, "description": "Cumulative delta positive (net buying)"}
+- VolumeProfile (parameters: poc, vah, val, position) -- rolling volume profile levels.
+  "poc" = Point of Control (highest volume price). "vah"/"val" = Value Area High/Low (70% of volume range). "position" = close vs POC normalized by ATR.
+  Example: {"indicator": "close", "parameter": "value", "operator": ">", "value": "VP_POC", "description": "Price above Point of Control"}
+  Example: {"indicator": "VolumeProfile", "parameter": "position", "operator": ">", "value": 0, "description": "Price above POC"}
 
 CRITICAL RULES FOR CONDITIONS:
 - To compare price vs a moving average, use indicator="close" and value="EMA_50".

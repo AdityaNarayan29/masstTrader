@@ -25,6 +25,11 @@ LSTM_FEATURE_COLUMNS = [
     "SMA_20", "BB_upper", "BB_middle", "BB_lower", "BB_width",
     "ATR_14", "ADX_14", "DI_plus", "DI_minus",
     "Stoch_K", "Stoch_D", "OBV", "Volume_ratio",
+    # Smart Money features
+    "Liq_sweep_bull", "Liq_sweep_bear",
+    "Volume_delta", "Cumulative_delta", "Delta_SMA_14",
+    "VP_POC", "VP_position",
+    "AVWAP_high", "AVWAP_low",
 ]
 
 # Module-level cache

@@ -29,6 +29,12 @@ FEATURE_COLUMNS = [
     "close_vs_BB_middle",
     "close_vs_EMA_50",
     "direction",
+    # Smart Money features
+    "Liq_sweep_bull",
+    "Liq_sweep_bear",
+    "Volume_delta",
+    "Cumulative_delta",
+    "VP_position",
 ]
 
 # Module-level model cache
@@ -66,10 +72,18 @@ def extract_features(indicators: dict, direction: str = "buy", close_price: floa
 
     dir_enc = 1.0 if direction == "buy" else 0.0
 
+    # Smart Money features
+    liq_bull = float(indicators.get("Liq_sweep_bull", 0.0) or 0.0)
+    liq_bear = float(indicators.get("Liq_sweep_bear", 0.0) or 0.0)
+    vol_delta = float(indicators.get("Volume_delta", 0.0) or 0.0)
+    cum_delta = float(indicators.get("Cumulative_delta", 0.0) or 0.0)
+    vp_position = float(indicators.get("VP_position", 0.0) or 0.0)
+
     return np.array([
         rsi, macd_hist, macd_line, bb_width, atr, adx,
         stoch_k, stoch_d, vol_ratio,
         ema_spread, close_vs_bb, close_vs_ema50, dir_enc,
+        liq_bull, liq_bear, vol_delta, cum_delta, vp_position,
     ], dtype=np.float64)
 
 
@@ -123,6 +137,19 @@ def predict_confidence(
     try:
         # Replace NaN/Inf before prediction
         features_2d = np.nan_to_num(features_2d, nan=0.0, posinf=0.0, neginf=0.0)
+        # Check for feature dimension mismatch (old model trained on fewer features)
+        expected = getattr(model, "n_features_in_", None)
+        if expected is not None and expected != features_2d.shape[1]:
+            logger.warning(
+                "ML model expects %d features but got %d — retrain needed, bypassing filter",
+                expected, features_2d.shape[1],
+            )
+            return {
+                "score": 1.0,
+                "pass": True,
+                "threshold": DEFAULT_THRESHOLD,
+                "model_loaded": False,
+            }
         proba = model.predict_proba(features_2d)[0]
         # Class 1 = winning trade
         confidence = float(proba[1]) if len(proba) > 1 else float(proba[0])
