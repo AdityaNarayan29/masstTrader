@@ -717,7 +717,7 @@ def run_backtest_endpoint(req: BacktestRequest):
                 try:
                     df_atf = connector.get_history(bt_symbol, atf, req.bars)
                     df_atf = _add_ind(df_atf)
-                    df_atf = df_atf.dropna()
+                    df_atf = df_atf.dropna(subset=["close"])
                     if len(df_atf) > 0:
                         if "datetime" not in df_atf.columns:
                             df_atf = df_atf.reset_index()
@@ -1165,7 +1165,7 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                     try:
                         df_atf = _mt5(connector.get_history, symbol, atf, 100)
                         df_atf = add_all_indicators(df_atf)
-                        df_atf = df_atf.dropna()
+                        df_atf = df_atf.dropna(subset=["close"])
                         if len(df_atf) < 1:
                             continue
                         last_row_atf = df_atf.iloc[-1]
@@ -1459,8 +1459,11 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                                         state["position_ticket"] = None
                                         state["trade_state"] = None
                                         bars_in_trade = 0
-                                        # Reset active rule so next iteration evaluates all rules fresh
+                                        # Reset active rule + all derived locals
                                         active_rc = rule_configs[0]
+                                        direction = active_rc["direction"]
+                                        exit_conditions = active_rc["exit_conditions"]
+                                        min_bars = active_rc["min_bars"]
                                     else:
                                         _add_signal(state, "error", f"Close failed: {close_result.get('message', 'unknown')}")
                             except Exception as e:
@@ -1484,8 +1487,11 @@ def _algo_loop(instance: AlgoInstance, strategy: dict, symbol: str, timeframe: s
                             state["position_ticket"] = None
                             state["trade_state"] = None
                             bars_in_trade = 0
-                            # Reset active rule so next iteration evaluates all rules fresh
+                            # Reset active rule + all derived locals
                             active_rc = rule_configs[0]
+                            direction = active_rc["direction"]
+                            exit_conditions = active_rc["exit_conditions"]
+                            min_bars = active_rc["min_bars"]
 
             except Exception as e:
                 import traceback
