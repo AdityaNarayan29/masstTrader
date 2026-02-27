@@ -874,6 +874,72 @@ STRATEGIES = [
             }
         ],
     },
+
+    # ═══════════════════════════════════════════
+    #  PINE SCRIPT CONVERSIONS
+    # ═══════════════════════════════════════════
+
+    # 29. BTC Micro Momentum (Long) — Pine Script conversion
+    {
+        "name": "BTC Micro Momentum Long — M5",
+        "symbol": "BTCUSDm",
+        "raw_description": "Buy BTC when price is above EMA 50 on both 1H and 4H timeframes, RSI > 60, use 1.5x ATR stop loss and 2.5:1 reward-to-risk (3.75x ATR take profit). Exit when RSI drops below 45. Base timeframe M5 with multi-TF filter on 1H and 4H.",
+        "ai_explanation": "Converted from Pine Script 'BTC Micro Momentum'. Multi-timeframe trend filter: price must be above EMA 50 on both 1H and 4H charts to confirm the trend. RSI > 60 filters for momentum (not just trend). ATR-based risk management with 2.5:1 R:R. RSI < 45 exit catches momentum fade before hitting stop loss. Works best during trending BTC sessions.",
+        "rules": [
+            {
+                "name": "BTC Micro Momentum — Long",
+                "timeframe": "5m",
+                "direction": "buy",
+                "description": "Buy BTC when trending up on 1H+4H with RSI momentum",
+                "entry_conditions": [
+                    {"indicator": "close", "parameter": "value", "operator": ">", "value": "EMA_50_1h", "description": "Price above EMA 50 on 1H (higher TF uptrend)"},
+                    {"indicator": "close", "parameter": "value", "operator": ">", "value": "EMA_50_4h", "description": "Price above EMA 50 on 4H (macro uptrend)"},
+                    {"indicator": "RSI", "parameter": "value", "operator": ">", "value": 60, "description": "RSI above 60 (bullish momentum)"}
+                ],
+                "exit_conditions": [
+                    {"indicator": "RSI", "parameter": "value", "operator": "<", "value": 45, "description": "RSI drops below 45 (momentum fading)"}
+                ],
+                "stop_loss_atr_multiplier": 1.5,
+                "take_profit_atr_multiplier": 3.75,
+                "stop_loss_pips": None,
+                "take_profit_pips": None,
+                "min_bars_in_trade": 3,
+                "additional_timeframes": ["1h", "4h"],
+                "risk_percent": 1.0
+            }
+        ],
+    },
+
+    # 30. BTC Micro Momentum (Short) — Pine Script conversion
+    {
+        "name": "BTC Micro Momentum Short — M5",
+        "symbol": "BTCUSDm",
+        "raw_description": "Sell BTC when price is below EMA 50 on both 1H and 4H timeframes, RSI < 40, use 1.5x ATR stop loss and 2.5:1 reward-to-risk (3.75x ATR take profit). Exit when RSI rises above 55. Base timeframe M5 with multi-TF filter on 1H and 4H.",
+        "ai_explanation": "Short side of the BTC Micro Momentum Pine Script. Multi-timeframe trend filter: price must be below EMA 50 on both 1H and 4H to confirm downtrend. RSI < 40 filters for bearish momentum. ATR-based risk management with 2.5:1 R:R. RSI > 55 exit catches momentum recovery before stop loss. Best during BTC selloffs and risk-off events.",
+        "rules": [
+            {
+                "name": "BTC Micro Momentum — Short",
+                "timeframe": "5m",
+                "direction": "sell",
+                "description": "Sell BTC when trending down on 1H+4H with RSI momentum",
+                "entry_conditions": [
+                    {"indicator": "close", "parameter": "value", "operator": "<", "value": "EMA_50_1h", "description": "Price below EMA 50 on 1H (higher TF downtrend)"},
+                    {"indicator": "close", "parameter": "value", "operator": "<", "value": "EMA_50_4h", "description": "Price below EMA 50 on 4H (macro downtrend)"},
+                    {"indicator": "RSI", "parameter": "value", "operator": "<", "value": 40, "description": "RSI below 40 (bearish momentum)"}
+                ],
+                "exit_conditions": [
+                    {"indicator": "RSI", "parameter": "value", "operator": ">", "value": 55, "description": "RSI rises above 55 (momentum recovering)"}
+                ],
+                "stop_loss_atr_multiplier": 1.5,
+                "take_profit_atr_multiplier": 3.75,
+                "stop_loss_pips": None,
+                "take_profit_pips": None,
+                "min_bars_in_trade": 3,
+                "additional_timeframes": ["1h", "4h"],
+                "risk_percent": 1.0
+            }
+        ],
+    },
 ]
 
 
