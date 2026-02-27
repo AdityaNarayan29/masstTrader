@@ -12,6 +12,8 @@ data/*.json
 data/*.db
 data/ml_models/
 *.db
+*.db-wal
+*.db-shm
 .DS_Store
 .vscode/
 .idea/
