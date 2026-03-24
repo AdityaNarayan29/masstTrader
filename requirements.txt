@@ -24,6 +24,12 @@ joblib>=1.3.0
 # LSTM Price Predictor
 tensorflow-cpu>=2.15.0
 
+# V2 Agent — Crypto exchange connectivity
+ccxt>=4.0.0              # Binance/Bybit unified API
+
+# V2 Agent — LangGraph (Phase 2, install now for graph structure)
+# langgraph>=0.0.30      # Uncomment when LLM nodes are ready
+
 # Utilities
 python-dotenv>=1.0.0
 pydantic>=2.5.0
