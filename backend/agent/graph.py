@@ -244,33 +244,65 @@ class TradingAgent:
             "current_prices": current_prices,
         }
 
+    def _get_mt5_connector(self):
+        """Get the global MT5 connector from the API module (same instance)."""
+        try:
+            import backend.api.main as api_main
+            c = getattr(api_main, "connector", None)
+            if c and c.is_connected:
+                return c
+        except Exception:
+            pass
+        # Fallback: try creating a fresh connection with env creds
+        try:
+            from backend.services.mt5_connector import MT5Connector
+            from config.settings import settings
+            mt5 = MT5Connector()
+            if settings.MT5_LOGIN and settings.MT5_PASSWORD:
+                mt5.connect(
+                    login=int(settings.MT5_LOGIN),
+                    password=settings.MT5_PASSWORD,
+                    server=settings.MT5_SERVER,
+                )
+                return mt5
+        except Exception as e:
+            logger.warning(f"MT5 auto-connect failed: {e}")
+        return None
+
     def _fetch_symbol_data(self, symbol: str, timeframe: str):
         """Fetch OHLCV data from MT5 or CCXT depending on symbol."""
         sym = symbol.upper()
 
-        if "BTC" in sym and "USD" in sym and "m" not in symbol:
-            # Pure crypto pair — use CCXT
+        # Pure crypto (BTC/USDT without broker suffix) — use CCXT
+        if "BTC" in sym and "USD" in sym and not symbol.endswith("m"):
             from backend.agent.feeds.crypto_feed import fetch_ohlcv
             return fetch_ohlcv("BTC/USDT", timeframe)
 
         # MT5 symbol (Gold, Forex, or Exness crypto like BTCUSDm)
-        try:
-            from backend.services.mt5_connector import MT5Connector
-            mt5 = MT5Connector()
-            if mt5.is_connected:
+        mt5 = self._get_mt5_connector()
+        if mt5:
+            try:
                 return mt5.get_history(symbol, timeframe, bars=500)
-        except Exception:
-            pass
+            except Exception as e:
+                logger.warning(f"MT5 fetch error for {symbol} {timeframe}: {e}")
+        else:
+            logger.warning(f"MT5 not available — cannot fetch {symbol}")
 
-        # If MT5 not available (dev mode), return None
-        logger.debug(f"No data source available for {symbol} {timeframe}")
+        # Fallback for BTC symbols — try CCXT
+        if "BTC" in sym:
+            try:
+                from backend.agent.feeds.crypto_feed import fetch_ohlcv
+                return fetch_ohlcv("BTC/USDT", timeframe)
+            except Exception as e:
+                logger.warning(f"CCXT fallback failed for {symbol}: {e}")
+
         return None
 
     def _fetch_current_price(self, symbol: str) -> dict:
         """Get current bid/ask."""
         sym = symbol.upper()
 
-        if "BTC" in sym and "USD" in sym and "m" not in symbol:
+        if "BTC" in sym and "USD" in sym and not symbol.endswith("m"):
             from backend.agent.feeds.crypto_feed import fetch_ticker
             ticker = fetch_ticker("BTC/USDT")
             return {
@@ -279,18 +311,30 @@ class TradingAgent:
                 "spread": (ticker.get("ask", 0) - ticker.get("bid", 0)),
             }
 
-        try:
-            from backend.services.mt5_connector import MT5Connector
-            mt5 = MT5Connector()
-            if mt5.is_connected:
+        mt5 = self._get_mt5_connector()
+        if mt5:
+            try:
                 price = mt5.get_symbol_price(symbol)
                 return {
                     "bid": price["bid"],
                     "ask": price["ask"],
                     "spread": price["ask"] - price["bid"],
                 }
-        except Exception:
-            pass
+            except Exception as e:
+                logger.warning(f"MT5 price error for {symbol}: {e}")
+
+        # Fallback for BTC
+        if "BTC" in sym:
+            try:
+                from backend.agent.feeds.crypto_feed import fetch_ticker
+                ticker = fetch_ticker("BTC/USDT")
+                return {
+                    "bid": ticker.get("bid", 0),
+                    "ask": ticker.get("ask", 0),
+                    "spread": (ticker.get("ask", 0) or 0) - (ticker.get("bid", 0) or 0),
+                }
+            except Exception:
+                pass
 
         return {"bid": 0, "ask": 0, "spread": 0}
 
