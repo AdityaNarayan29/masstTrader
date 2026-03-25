@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useTheme } from "next-themes";
 import {
   Card,
   CardContent,
@@ -10,6 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { ArchitectureDiagram } from "@/components/architecture-diagram";
 
 const FEATURES = [
   {
@@ -105,10 +107,13 @@ const TECH = [
   "TypeScript",
   "FastAPI",
   "MetaTrader 5",
+  "CCXT",
   "Groq AI",
   "XGBoost",
   "TensorFlow",
   "LSTM",
+  "LangGraph",
+  "RAG",
   "TradingView Charts",
   "Tailwind CSS",
   "shadcn/ui",
@@ -116,8 +121,31 @@ const TECH = [
 ];
 
 export default function Home() {
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = (resolvedTheme ?? "dark") === "dark";
+
   return (
     <div className="max-w-5xl mx-auto space-y-10 md:space-y-16 px-4 md:px-0">
+      {/* Top bar with theme toggle */}
+      <div className="fixed top-4 right-4 z-50" suppressHydrationWarning>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-9 w-9 rounded-full border-border/50 bg-background/80 backdrop-blur-sm shadow-lg"
+          onClick={() => setTheme(isDark ? "light" : "dark")}
+        >
+          {isDark ? (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+          )}
+        </Button>
+      </div>
+
       {/* Hero */}
       <section className="relative overflow-hidden py-12 md:py-24 -mx-4 md:-mx-6 px-4 md:px-6">
         {/* Background effects */}
@@ -130,12 +158,12 @@ export default function Home() {
 
         <div className="text-center space-y-8">
           <div className="flex justify-center">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-primary/20 bg-primary/5 text-primary text-xs font-medium tracking-wide">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-500 text-xs font-semibold tracking-wide">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
               </span>
-              AI-Powered Trading Platform
+              Autonomous AI Trading Agent
             </div>
           </div>
 
@@ -147,10 +175,10 @@ export default function Home() {
             </span>
           </h1>
 
-          <p className="text-muted-foreground text-lg max-w-xl mx-auto leading-relaxed">
-            Describe strategies in plain English. Backtest on real data.
+          <p className="text-neutral-500 dark:text-neutral-400 text-lg max-w-2xl mx-auto leading-relaxed">
+            7-node AI agent that scans markets, detects regimes, generates signals,
             <br className="hidden md:block" />
-            Get AI coaching on every trade you take.
+            manages risk, and executes trades — fully autonomous, 24/7.
           </p>
 
           <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4 pt-2">
@@ -168,23 +196,23 @@ export default function Home() {
 
           <div className="grid grid-cols-2 sm:flex justify-center items-center gap-4 sm:gap-8 pt-8 text-center">
             <div>
-              <p className="text-2xl font-bold font-mono text-primary">8</p>
-              <p className="text-[11px] text-muted-foreground">AI + ML Features</p>
+              <p className="text-2xl font-black font-mono text-emerald-500">7</p>
+              <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Agent Nodes</p>
             </div>
-            <div className="hidden sm:block h-8 w-px bg-border" />
+            <div className="hidden sm:block h-8 w-px bg-white/10" />
             <div>
-              <p className="text-2xl font-bold font-mono text-primary">Live</p>
-              <p className="text-[11px] text-muted-foreground">WebSocket Stream</p>
+              <p className="text-2xl font-black font-mono text-emerald-500">24/7</p>
+              <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Autonomous</p>
             </div>
-            <div className="hidden sm:block h-8 w-px bg-border" />
+            <div className="hidden sm:block h-8 w-px bg-white/10" />
             <div>
-              <p className="text-2xl font-bold font-mono text-primary">MT5</p>
-              <p className="text-[11px] text-muted-foreground">Direct Broker</p>
+              <p className="text-2xl font-black font-mono text-emerald-500">MT5</p>
+              <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">+ Binance/Bybit</p>
             </div>
-            <div className="hidden sm:block h-8 w-px bg-border" />
+            <div className="hidden sm:block h-8 w-px bg-white/10" />
             <div>
-              <p className="text-2xl font-bold font-mono text-primary">Free</p>
-              <p className="text-[11px] text-muted-foreground">Groq AI</p>
+              <p className="text-2xl font-black font-mono text-emerald-500">Free</p>
+              <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Groq AI</p>
             </div>
           </div>
         </div>
@@ -263,85 +291,10 @@ export default function Home() {
         <div className="text-center">
           <h2 className="text-2xl font-bold tracking-tight">Architecture</h2>
           <p className="text-muted-foreground text-sm mt-1">
-            Full-stack platform built for real-time trading
+            Autonomous AI agent with 7-node decision pipeline
           </p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Frontend</CardTitle>
-              <CardDescription className="text-xs">Deployed on Vercel</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-blue-500" />
-                <span>Next.js 16 + TypeScript</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-blue-500" />
-                <span>Tailwind CSS v4 + shadcn/ui</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-blue-500" />
-                <span>TradingView Charts</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-blue-500" />
-                <span>WebSocket for live data</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Backend</CardTitle>
-              <CardDescription className="text-xs">AWS EC2 Windows</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-green-500" />
-                <span>FastAPI + Uvicorn</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-green-500" />
-                <span>MetaTrader5 Python (IPC)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-green-500" />
-                <span>SQLite persistence</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-green-500" />
-                <span>Technical indicators (ta)</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">AI + ML Layer</CardTitle>
-              <CardDescription className="text-xs">LLM + Machine Learning models</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-purple-500" />
-                <span>Groq — Llama 3.3 70B (free)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-purple-500" />
-                <span>XGBoost confidence filter</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-purple-500" />
-                <span>LSTM price predictor (TensorFlow)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-purple-500" />
-                <span>ML performance dashboard</span>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        <ArchitectureDiagram />
       </section>
 
       <Separator />
