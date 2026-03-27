@@ -1,0 +1,27 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'requirements.txt'
+      - 'config/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: Administrator
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            cd C:\masstTrader
+            git pull origin main
+            C:\masstTrader\.venv\Scripts\pip.exe install -r requirements.txt --quiet
+            C:\nssm\nssm.exe restart massttrader
+            echo "Deployed successfully!"
