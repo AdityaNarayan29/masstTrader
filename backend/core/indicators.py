@@ -52,9 +52,10 @@ def add_macd(
 
 
 def add_ema(df: pd.DataFrame, period: int = 20) -> pd.DataFrame:
-    df[f"EMA_{period}"] = ta.trend.EMAIndicator(
-        close=df["close"], window=period
-    ).ema_indicator()
+    ema = ta.trend.EMAIndicator(close=df["close"], window=period).ema_indicator()
+    df[f"EMA_{period}"] = ema
+    # EMA slope (rate of change over 5 bars) — used by regime detector
+    df[f"EMA_{period}_slope"] = ema.diff(5) / ema.shift(5) * 100
     return df
 
 
@@ -80,6 +81,8 @@ def add_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     df[f"ATR_{period}"] = ta.volatility.AverageTrueRange(
         high=df["high"], low=df["low"], close=df["close"], window=period
     ).average_true_range()
+    # 20-period rolling average of ATR — used by risk calculator for volatility detection
+    df[f"ATR_{period}_avg"] = df[f"ATR_{period}"].rolling(window=20).mean()
     return df
 
 

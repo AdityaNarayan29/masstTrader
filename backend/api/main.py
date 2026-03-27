@@ -2210,3 +2210,161 @@ async def sse_ticker(request: Request, symbol: str = "EURUSDm"):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# V2 Autonomous Agent Endpoints
+# ═══════════════════════════════════════════════════════════════════
+
+from backend.agent.graph import get_agent
+from backend.agent import db as agent_db
+
+
+@app.post("/api/agent/start")
+async def agent_start():
+    """Start the autonomous trading agent."""
+    agent = get_agent()
+    if agent.is_running:
+        return {"status": "already_running", **agent.status}
+    agent.start()
+    return {"status": "started", **agent.status}
+
+
+@app.post("/api/agent/stop")
+async def agent_stop():
+    """Stop the autonomous trading agent."""
+    agent = get_agent()
+    if not agent.is_running:
+        return {"status": "not_running"}
+    agent.stop()
+    return {"status": "stopped"}
+
+
+@app.post("/api/agent/halt")
+async def agent_halt(reason: str = "manual"):
+    """Emergency halt — stops trading but keeps monitoring."""
+    agent = get_agent()
+    agent.halt(reason)
+    return {"status": "halted", "reason": reason}
+
+
+@app.post("/api/agent/resume")
+async def agent_resume():
+    """Resume after a halt."""
+    agent = get_agent()
+    agent.resume()
+    return {"status": "resumed", **agent.status}
+
+
+@app.get("/api/agent/status")
+async def agent_status():
+    """Get current agent status."""
+    agent = get_agent()
+    return sanitize_for_json(agent.status)
+
+
+@app.post("/api/agent/cycle")
+async def agent_run_cycle():
+    """Run a single cycle manually (useful for testing)."""
+    agent = get_agent()
+    loop = asyncio.get_event_loop()
+    state = await loop.run_in_executor(None, agent.run_single_cycle)
+
+    # Summarize cycle result
+    signals = state.get("signals", {})
+    executions = state.get("executions", {})
+    return sanitize_for_json({
+        "cycle_id": state.get("cycle_id"),
+        "session": state.get("current_session"),
+        "cleared_symbols": state.get("cleared_symbols", []),
+        "skipped": state.get("scanner_skips", []),
+        "regimes": state.get("regimes", {}),
+        "signals": {
+            sym: {
+                "direction": s.get("direction"),
+                "confidence": s.get("confidence"),
+                "reasoning": s.get("reasoning", "")[:200],
+            }
+            for sym, s in signals.items()
+        },
+        "orders": {
+            sym: {
+                "direction": o.get("direction"),
+                "volume": o.get("volume"),
+                "rejected": o.get("rejected"),
+                "reject_reason": o.get("reject_reason"),
+            }
+            for sym, o in state.get("orders", {}).items()
+        },
+        "executions": {
+            sym: {
+                "success": e.get("success"),
+                "fill_price": e.get("fill_price"),
+                "slippage": e.get("slippage"),
+            }
+            for sym, e in executions.items()
+        },
+        "monitor_actions": state.get("monitor_actions", []),
+        "errors": state.get("errors", []),
+    })
+
+
+@app.get("/api/agent/trades")
+async def agent_trades(symbol: str = None, status: str = None, limit: int = 50):
+    """Get agent trades."""
+    if status == "open":
+        trades = agent_db.get_open_agent_trades(symbol)
+    else:
+        trades = agent_db.get_recent_agent_trades(limit)
+        if symbol:
+            trades = [t for t in trades if t["symbol"] == symbol]
+    return sanitize_for_json({"trades": trades, "count": len(trades)})
+
+
+@app.get("/api/agent/stats")
+async def agent_stats():
+    """Get agent performance statistics."""
+    trades = agent_db.get_recent_agent_trades(limit=1000)
+    closed = [t for t in trades if t["status"] == "closed" and t.get("net_pnl") is not None]
+
+    if not closed:
+        return {"total_trades": 0, "win_rate": 0, "total_pnl": 0}
+
+    wins = [t for t in closed if t["net_pnl"] > 0]
+    pnls = [t["net_pnl"] for t in closed]
+
+    # Stats by session
+    by_session = {}
+    for t in closed:
+        session = t.get("session", "unknown")
+        by_session.setdefault(session, {"trades": 0, "wins": 0, "pnl": 0})
+        by_session[session]["trades"] += 1
+        if t["net_pnl"] > 0:
+            by_session[session]["wins"] += 1
+        by_session[session]["pnl"] += t["net_pnl"]
+
+    # Stats by regime
+    by_regime = {}
+    for t in closed:
+        regime = t.get("regime", "unknown")
+        by_regime.setdefault(regime, {"trades": 0, "wins": 0, "pnl": 0})
+        by_regime[regime]["trades"] += 1
+        if t["net_pnl"] > 0:
+            by_regime[regime]["wins"] += 1
+        by_regime[regime]["pnl"] += t["net_pnl"]
+
+    return sanitize_for_json({
+        "total_trades": len(closed),
+        "winning_trades": len(wins),
+        "losing_trades": len(closed) - len(wins),
+        "win_rate": round(len(wins) / len(closed) * 100, 1),
+        "total_pnl": round(sum(pnls), 2),
+        "avg_pnl": round(sum(pnls) / len(pnls), 2),
+        "best_trade": round(max(pnls), 2),
+        "worst_trade": round(min(pnls), 2),
+        "consecutive_losses": agent_db.get_consecutive_losses(),
+        "daily_pnl": round(agent_db.get_daily_pnl(), 2),
+        "weekly_pnl": round(agent_db.get_weekly_pnl(), 2),
+        "by_session": by_session,
+        "by_regime": by_regime,
+    })
