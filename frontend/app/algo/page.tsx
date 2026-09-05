@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { api } from "@/lib/api";
 import { useLiveStream } from "@/hooks/use-live-stream";
+import { fmtMoney, Signed } from "@/components/trade/num";
 import { LiveChart, type TradeMarkerData, type PositionOverlay } from "@/components/live-chart";
 import { Loader2 } from "lucide-react";
 import { SymbolCombobox } from "@/components/symbol-combobox";
@@ -375,6 +376,32 @@ export default function AlgoPage() {
       .catch((e: Error) => console.error(e.message))
       .finally(() => setLoadingChart(false));
   }, [polledAlgo]);
+
+  // Load the chart on arrival, not only when an algo is already running.
+  // Previously /algo showed a form, a rules card and ~1700px of empty space
+  // until you pressed Start — an algo screen with no chart on it. The chart is
+  // how you judge whether the strategy's conditions make sense before running.
+  useEffect(() => {
+    if (!symbol) return;
+    let cancelled = false;
+    const tf = selectedStrategy?.timeframe ? toUiTimeframe(selectedStrategy.timeframe) : timeframe;
+    setLoadingChart(true);
+    api.data
+      .fetch(symbol, tf, 200)
+      .then((data) => {
+        if (!cancelled) setHistoricalCandles(data.candles as unknown as HistoricalCandle[]);
+      })
+      .catch(() => {
+        if (!cancelled) setHistoricalCandles([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingChart(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, timeframe, selectedStrategy?.timeframe]);
 
   // HTTP poll fallback for price/account/positions when SSE is down
   useEffect(() => {
@@ -819,32 +846,46 @@ export default function AlgoPage() {
         </CardContent>
       </Card>
 
-      {/* Price Bar */}
+      {/* Price strip. Was three ~110px cards with 2xl figures for three
+          numbers; that is a headline, not a readout. Reuses the page's existing
+          stream rather than mounting MarketBar, which would open a second SSE
+          connection for data this page already has. */}
       {price && (
-        <div className="grid grid-cols-3 gap-3">
-          <Card className="border-green-500/20">
-            <CardContent className="py-4 text-center">
-              <p className="text-xs text-muted-foreground">BID</p>
-              <p className="text-2xl font-mono font-bold text-green-500 mt-1">
-                {price.bid.toFixed(isBigPrice ? 2 : 5)}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-4 text-center">
-              <p className="text-xs text-muted-foreground">SPREAD</p>
-              <p className="text-2xl font-mono font-bold mt-1">{spread}</p>
-              <p className="text-xs text-muted-foreground">{spreadUnit}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-red-500/20">
-            <CardContent className="py-4 text-center">
-              <p className="text-xs text-muted-foreground">ASK</p>
-              <p className="text-2xl font-mono font-bold text-red-500 mt-1">
-                {price.ask.toFixed(isBigPrice ? 2 : 5)}
-              </p>
-            </CardContent>
-          </Card>
+        <div className="flex items-center gap-4 overflow-x-auto rounded-lg border border-border bg-surface-2 px-3 py-2">
+          <div className="shrink-0">
+            <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Bid</div>
+            <div className="price text-base font-semibold text-down">
+              {price.bid.toFixed(isBigPrice ? 2 : 5)}
+            </div>
+          </div>
+          <div className="shrink-0">
+            <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Ask</div>
+            <div className="price text-base font-semibold text-up">
+              {price.ask.toFixed(isBigPrice ? 2 : 5)}
+            </div>
+          </div>
+          <div className="h-8 w-px shrink-0 bg-border" />
+          <div className="shrink-0">
+            <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Spread</div>
+            <div className="price text-base font-semibold">
+              {spread} <span className="text-[10px] font-normal text-muted-foreground">{spreadUnit}</span>
+            </div>
+          </div>
+          {account && (
+            <>
+              <div className="h-8 w-px shrink-0 bg-border" />
+              <div className="shrink-0">
+                <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Equity</div>
+                <div className="price text-base font-semibold">{fmtMoney(account.equity)}</div>
+              </div>
+              <div className="shrink-0">
+                <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Floating P&amp;L</div>
+                <div className="text-base font-semibold">
+                  <Signed value={account.profit} format={(v) => fmtMoney(v)} />
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -1792,8 +1833,9 @@ export default function AlgoPage() {
         </Card>
       ) : (
         <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            No trades recorded yet. Start the algo to begin trading.
+          <CardContent className="py-4 text-center text-xs text-muted-foreground">
+            No trades yet. Trades placed by the algo appear here, and are marked
+            on the chart above.
           </CardContent>
         </Card>
       )}
