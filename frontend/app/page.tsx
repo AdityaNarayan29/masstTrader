@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import Image from "next/image";
 import { useTheme } from "next-themes";
 import {
   Card,
@@ -125,7 +126,7 @@ export default function Home() {
   const isDark = (resolvedTheme ?? "dark") === "dark";
 
   return (
-    <div className="max-w-5xl mx-auto space-y-10 md:space-y-16 px-4 md:px-0">
+    <div className="mx-auto max-w-7xl space-y-12 px-4 md:space-y-16 md:px-6">
       {/* Top bar with theme toggle */}
       <div className="fixed top-4 right-4 z-50" suppressHydrationWarning>
         <Button
@@ -147,10 +148,20 @@ export default function Home() {
       </div>
 
       {/* Hero */}
-      <section className="relative overflow-hidden py-12 md:py-24 -mx-4 md:-mx-6 px-4 md:px-6">
+      <section className="relative overflow-hidden pt-12 pb-8 md:pt-20 md:pb-10 -mx-4 md:-mx-6 px-4 md:px-6">
         {/* Background effects */}
         <div className="absolute inset-0 -z-10">
-          <div className="absolute inset-0 bg-[linear-gradient(rgba(16,185,129,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(16,185,129,0.04)_1px,transparent_1px)] bg-[size:64px_64px]" />
+          <div
+            className="absolute inset-0 bg-[linear-gradient(rgba(16,185,129,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(16,185,129,0.04)_1px,transparent_1px)] bg-[size:64px_64px]"
+            style={{
+              // Fade the grid at every edge. Without this it terminates in a
+              // hard rectangle that reads as a rendering artefact.
+              maskImage:
+                "radial-gradient(ellipse 80% 60% at 50% 35%, black 40%, transparent 100%)",
+              WebkitMaskImage:
+                "radial-gradient(ellipse 80% 60% at 50% 35%, black 40%, transparent 100%)",
+            }}
+          />
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] bg-primary/8 rounded-full blur-[140px]" />
           <div className="absolute -top-20 -right-20 w-[400px] h-[400px] bg-emerald-500/5 rounded-full blur-[100px]" />
           <div className="absolute -bottom-20 -left-20 w-[300px] h-[300px] bg-emerald-500/5 rounded-full blur-[80px]" />
@@ -196,24 +207,51 @@ export default function Home() {
 
           <div className="grid grid-cols-2 sm:flex justify-center items-center gap-4 sm:gap-8 pt-8 text-center">
             <div>
-              <p className="text-2xl font-black font-mono text-emerald-500">7</p>
+              <p className="price text-xl font-bold text-primary">7</p>
               <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Agent Nodes</p>
             </div>
             <div className="hidden sm:block h-8 w-px bg-white/10" />
             <div>
-              <p className="text-2xl font-black font-mono text-emerald-500">24/7</p>
+              <p className="price text-xl font-bold text-primary">24/7</p>
               <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Autonomous</p>
             </div>
             <div className="hidden sm:block h-8 w-px bg-white/10" />
             <div>
-              <p className="text-2xl font-black font-mono text-emerald-500">MT5</p>
+              <p className="price text-xl font-bold text-primary">MT5</p>
               <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">+ Binance/Bybit</p>
             </div>
             <div className="hidden sm:block h-8 w-px bg-white/10" />
             <div>
-              <p className="text-2xl font-black font-mono text-emerald-500">Free</p>
+              <p className="price text-xl font-bold text-primary">Free</p>
               <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Groq AI</p>
             </div>
+          </div>
+        </div>
+
+        {/* Product shot — the real terminal, live EURUSD data. Angled frame and
+            a fade at the base so it reads as a window into the app rather than
+            a flat image pasted onto the page. */}
+        <div className="relative mx-auto mt-12 w-full">
+          <div className="pointer-events-none absolute -inset-x-8 -top-8 bottom-0 bg-[radial-gradient(ellipse_at_top,var(--color-primary)/12%,transparent_60%)]" />
+          <div className="relative overflow-hidden rounded-xl border border-border/80 bg-surface-1 shadow-2xl shadow-black/40 ring-1 ring-white/5">
+            {/* window chrome — sets the expectation that this is a real screen */}
+            <div className="flex h-8 items-center gap-1.5 border-b border-border/60 bg-surface-2 px-3">
+              <span className="size-2.5 rounded-full bg-down/60" />
+              <span className="size-2.5 rounded-full bg-warn/60" />
+              <span className="size-2.5 rounded-full bg-up/60" />
+              <span className="ml-3 text-[10px] text-muted-foreground">
+                masstrader — algo trader · EURUSDm
+              </span>
+            </div>
+            <Image
+              src="/product-terminal.png"
+              alt="MasstTrader algo trading terminal showing a live EURUSD candlestick chart with Bollinger Bands, EMA and RSI, alongside strategy entry and exit conditions"
+              width={3200}
+              height={1800}
+              priority
+              className="block w-full"
+            />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-background to-transparent" />
           </div>
         </div>
       </section>
@@ -230,16 +268,16 @@ export default function Home() {
         </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {FLOW_STEPS.map((item, i) => (
-            <Card key={item.step} className="text-center relative">
-              <CardContent className="pt-6 pb-4">
-                <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold text-sm flex items-center justify-center mx-auto mb-3">
+            <Card key={item.step} className="relative py-0 text-center">
+              <CardContent className="flex flex-col items-center px-3 py-4">
+                <div className="mb-2 flex size-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
                   {item.step}
                 </div>
-                <p className="font-semibold text-sm">{item.title}</p>
-                <p className="text-xs text-muted-foreground mt-1">{item.desc}</p>
+                <p className="text-sm font-semibold">{item.title}</p>
+                <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{item.desc}</p>
               </CardContent>
               {i < FLOW_STEPS.length - 1 && (
-                <div className="hidden md:block absolute top-1/2 -right-2 text-muted-foreground/40 text-lg">
+                <div className="absolute -right-2 top-1/2 hidden -translate-y-1/2 text-sm text-muted-foreground/70 md:block">
                   &rarr;
                 </div>
               )}

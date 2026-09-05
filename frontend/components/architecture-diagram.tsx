@@ -137,7 +137,7 @@ function SystemDiagram() {
       {/* Backend container */}
       <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.02] dark:bg-emerald-500/[0.015] p-5 space-y-1">
         <p className="text-[10px] uppercase tracking-[0.15em] text-emerald-500/60 font-bold text-center mb-3">
-          FastAPI Backend &middot; EC2 Windows &middot; :8008
+          FastAPI Backend &middot; Azure Windows VM &middot; :8008
         </p>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">

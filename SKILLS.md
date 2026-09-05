@@ -133,6 +133,38 @@ The agent trades as though macro were always benign.
 
 <!-- Newest first. One entry per completed item. -->
 
+### 2026-09-06 - Landing page rebuilt around the product
+
+**The core miss: no picture of the product.** A trading platform landing page
+that never shows the platform is asking people to imagine it. Added a real
+screenshot of the algo terminal - live EURUSD candles, Bollinger Bands, RSI,
+strategy conditions - captured from the running app, not a mockup, framed in
+window chrome with a fade at the base.
+
+**Root container was `max-w-5xl`.** The entire landing was capped at 1024px on a
+1512px screen - ~490px unused, and the product shot could never exceed it.
+Now `max-w-7xl`; prose keeps `max-w-2xl` because the fix for a narrow page is
+not a 1280px-wide paragraph.
+
+**Factual error on the landing page.** The architecture diagram said
+"FastAPI Backend - EC2 Windows - :8008". That host has been dead for months and
+the backend is on Azure. Corrected.
+
+**Detail fixes.**
+- Hero grid ended in a hard rectangle where the section stopped, which reads as
+  a rendering artefact. Now radially masked so it dissolves.
+- 7 feature cards in a 3-column grid orphaned one on the last row. Centred, via
+  a selector that survives features being added or removed.
+- "How It Works" cards were ~190px tall around ~90px of content. Now ~110px.
+- Step arrows were `/40` opacity - effectively invisible. Now `/70`.
+- Stats strip was `text-2xl font-black font-mono` on four items, competing with
+  the headline directly above it.
+
+**Not changed:** the headline copy, and the architecture diagram's multi-colour
+palette. The colours encode layer identity there rather than price direction,
+so mapping them to `--up`/`--down` would be wrong; it does deserve a narrower
+palette, which is a separate job.
+
 ### 2026-09-06 - All 9 pages audited and fixed; tokens actually adopted
 
 Captured every page with Playwright at 1512px (tall viewport - the app scrolls
