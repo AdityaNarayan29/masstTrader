@@ -53,7 +53,7 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
         className={
           isTerminal
             ? "flex min-h-0 flex-1 flex-col overflow-hidden pt-14 md:pt-0"
-            : "flex-1 overflow-y-auto p-4 pt-16 md:p-6 md:pt-6"
+            : "flex flex-1 flex-col overflow-y-auto p-4 pt-16 md:p-6 md:pt-6"
         }
       >
         {children}

@@ -303,10 +303,10 @@ export default function BacktestPage() {
     : [];
 
   return (
-    <div className="max-w-5xl space-y-6">
+    <div className="flex w-full flex-1 flex-col space-y-4">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Strategy Backtester</h1>
+        <h1 className="text-lg font-semibold tracking-tight">Strategy Backtester</h1>
         <p className="text-muted-foreground text-sm mt-1">
           Test your parsed strategy against historical data
         </p>
@@ -403,6 +403,41 @@ export default function BacktestPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Empty state. Previously the page rendered the parameter form and then
+          nothing at all, leaving three-quarters of the viewport blank until a
+          run finished. An empty result area should explain what a run produces
+          and how to start one. */}
+      {!stats && !loading && (
+        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-surface-1 px-6 py-12 text-center">
+          <p className="text-sm font-medium">No backtest run yet</p>
+          <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+            Pick a strategy and press <span className="font-medium">Run Backtest</span>.
+            You&apos;ll get an equity curve, per-trade entries and exits plotted on the
+            chart, and a full statistics breakdown — win rate, profit factor, max
+            drawdown and Sharpe.
+          </p>
+          <div className="mx-auto mt-6 grid max-w-lg grid-cols-2 gap-3 text-left sm:grid-cols-4">
+            {["Equity curve", "Trade markers", "Win rate & PF", "Drawdown"].map((f) => (
+              <div
+                key={f}
+                className="rounded border border-grid-line px-2 py-1.5 text-[11px] text-muted-foreground"
+              >
+                {f}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {loading && !stats && (
+        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-border bg-surface-1 px-6 py-12 text-center">
+          <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
+          <p className="mt-3 text-xs text-muted-foreground">
+            Running the strategy over historical candles…
+          </p>
+        </div>
+      )}
 
       {stats && (
         <>

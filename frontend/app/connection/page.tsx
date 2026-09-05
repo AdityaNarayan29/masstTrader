@@ -214,10 +214,10 @@ export default function ConnectionPage() {
   };
 
   return (
-    <div className="max-w-5xl space-y-6">
+    <div className="w-full max-w-4xl space-y-4">
       {/* Page Header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">MT5 Connection</h1>
+        <h1 className="text-lg font-semibold tracking-tight">MT5 Connection</h1>
         <p className="text-muted-foreground text-sm mt-1">
           Connect to your MetaTrader 5 terminal or use demo data
         </p>

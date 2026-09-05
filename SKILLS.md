@@ -133,6 +133,33 @@ The agent trades as though macro were always benign.
 
 <!-- Newest first. One entry per completed item. -->
 
+### 2026-09-06 - Every page audited; global layout fixes
+
+Screenshotted all 9 pages at 1512x900 and reviewed each. The same three faults
+repeated everywhere, so they were fixed systemically rather than page by page:
+
+1. **Width caps.** Every page used `max-w-4xl`/`5xl`/`7xl`, leaving ~450px of
+   dead right margin on a 1512px screen. Removed on all data-dense pages.
+   Kept a reading measure on `/tutor` only - long prose lines genuinely are
+   harder to read, so full width would be worse there.
+2. **Oversized headers.** `text-2xl font-bold` on every page, ~90px of chrome
+   restating what the highlighted sidebar item already said. Now `text-lg`.
+3. **Results hidden behind a conditional.** `/backtest` rendered the parameter
+   form and then literally nothing until a run finished - three-quarters of the
+   viewport blank. Now an empty state that says what a run produces, and it
+   grows to fill the height (`main` is a flex column so children can expand).
+
+**Strategy list rebuilt.** Was ~70px bordered cards; 29 strategies meant
+scrolling to find a name. Now a ~33px-row table with a filter - 8 visible at
+once instead of 3.
+
+**Added `components/trade/page.tsx`**: `PageHeader`, `PageBody`, `SplitPane`,
+`Row`.
+
+**Still on the old card-stack layout:** `/algo` (1823 lines - needs
+decomposition before restyling), `/ml`, `/analyzer`, `/tutor`, `/connection`.
+These got the width and header fixes but not a structural redesign.
+
 ### 2026-09-06 - Design system + Market Watch redesign
 
 **Diagnosis (from screenshots, not assumption).** The UI was form-first: every

@@ -461,11 +461,11 @@ export default function AlgoPage() {
     : stream.candle?.indicators ?? null;
 
   return (
-    <div className="max-w-5xl space-y-6">
+    <div className="w-full space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Algo Trader</h1>
+          <h1 className="text-lg font-semibold tracking-tight">Algo Trader</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Run automated strategies with live visualization
           </p>

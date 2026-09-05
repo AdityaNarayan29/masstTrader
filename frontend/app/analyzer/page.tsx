@@ -108,9 +108,9 @@ export default function AnalyzerPage() {
       : "";
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="w-full space-y-4">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">AI Trade Analyzer</h1>
+        <h1 className="text-lg font-semibold tracking-tight">AI Trade Analyzer</h1>
         <p className="text-muted-foreground text-sm mt-1">
           Enter a trade you took. AI compares it against your strategy and tells
           you what went right or wrong.
