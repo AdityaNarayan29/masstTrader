@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from backend.agent.config import AgentConfig
 from backend.agent.state import AgentState
-from backend.agent import db
+from backend.agent import db, audit
 from backend.agent.nodes import (
     market_scanner,
     context_enricher,
@@ -75,6 +75,8 @@ class TradingAgent:
         self._running = True
         self._halted = False
         self._halt_reason = None
+        # Enforce the audit-log retention window (spec S10: 90 days).
+        audit.prune()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         logger.info("Agent started")
@@ -435,6 +437,20 @@ class TradingAgent:
             db.save_agent_cycle(cycle_data)
         except Exception as e:
             logger.error(f"Failed to log cycle: {e}")
+
+        # Durable forensic record (spec S10). Survives the SQLite db being wiped,
+        # and captures the macro snapshot the decision was actually made against.
+        audit.write_cycle({
+            **cycle_data,
+            "prompt_version": AgentConfig.PROMPT_VERSION,
+            "agent_env": AgentConfig.ENV,
+            "macro_context": state.get("macro_context", {}),
+            "crypto_context": state.get("crypto_context", {}),
+            "gold_context": state.get("gold_context", {}),
+            "sentiment_context": state.get("sentiment_context", {}),
+            "account": state.get("account", {}),
+            "consecutive_losses": state.get("consecutive_losses", 0),
+        })
 
         logger.info(
             f"Cycle {state.get('cycle_id')} completed in {duration_ms}ms — "

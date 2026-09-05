@@ -27,7 +27,7 @@
 | Backtester | Working, 42 trades on demo data | `/api/backtest/run` |
 | V2 agent | Cycles run; signal generator is rule-based, not LLM | `/api/agent/cycle` |
 | Frontend | Next.js 16, 9 pages, all 200 | local `:3000` |
-| Tests | 32 passing (`pytest -q`) | indicators, risk calculator, API auth |
+| Tests | 40 passing (`pytest -q`) | indicators, risk calculator, API auth, audit log |
 
 ---
 
@@ -37,7 +37,7 @@
 | --- | --- | --- | --- |
 | 1 | API auth fails open - blank `API_KEY` disables all auth | **DONE** | 2026-09-06 |
 | 2 | No Telegram/alerting - agent runs unattended with no way to report failure | TODO | |
-| 3 | No structured audit log (spec S10 requires daily JSON in `logs/`) | TODO | |
+| 3 | No structured audit log (spec S10 requires daily JSON in `logs/`) | **DONE** | 2026-09-06 |
 | 4 | Kill switches (daily/weekly drawdown) have never been executed or tested | **DONE** | 2026-09-06 |
 | 5 | Local bug fixes are uncommitted - a VM rebuild reintroduces them | TODO | |
 | 6 | `setup.ps1` omits VC++ redistributable - TensorFlow fails on fresh deploy | **DONE** | 2026-09-06 |
@@ -122,6 +122,25 @@ The agent trades as though macro were always benign.
 ## Change log
 
 <!-- Newest first. One entry per completed item. -->
+
+### 2026-09-06 - P0 #3 structured audit log
+
+**Added `backend/agent/audit.py`** and wired it into `graph.py::_log_cycle`.
+- JSON Lines (one object per line) in `logs/agent-YYYY-MM-DD.jsonl`, not a JSON
+  array: appendable without a rewrite, survives a mid-write crash losing only the
+  last line, and greps/`jq`s directly.
+- Records everything spec S10 asks for, including the macro/crypto/gold/sentiment
+  snapshot the decision was actually made against, `prompt_version`, `agent_env`,
+  account state, and **every NONE signal**.
+- Credentials are recursively redacted before write (password, api_key, token,
+  secret). Verified a broker password cannot reach the file.
+- `write_cycle` never raises - a logging failure must not stop trading.
+- `audit.prune()` runs on agent start, enforcing the 90-day window
+  (`AUDIT_RETENTION_DAYS`), and only touches files matching `agent-<date>.jsonl`.
+- `logs/` added to `.gitignore`.
+- *Verified:* 8 unit tests, plus an end-to-end run - a real cycle
+  (`710c5b0c`, BTCUSDm, regime TRENDING_UP, signal NONE @ 20%) was written and
+  read back with all fields intact.
 
 ### 2026-09-06 - P0 security + first test suite
 
