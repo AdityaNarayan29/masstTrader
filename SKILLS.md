@@ -41,8 +41,17 @@
 | 4 | Kill switches (daily/weekly drawdown) have never been executed or tested | **DONE** | 2026-09-06 |
 | 5 | Local bug fixes are uncommitted - a VM rebuild reintroduces them | TODO | |
 | 6 | `setup.ps1` omits VC++ redistributable - TensorFlow fails on fresh deploy | **DONE** | 2026-09-06 |
+| 22 | MT5 connection does not survive a restart - credentials are not in the VM's `.env` | TODO | |
 
 ### Detail
+
+**22. MT5 connection is not durable.** Connecting through
+`POST /api/mt5/connect` (the web form) stores the connector in memory only. Any
+restart - deploy, crash, NSSM auto-restart, VM reboot - drops it, and because
+`MT5_LOGIN`/`MT5_PASSWORD`/`MT5_SERVER` are blank in the VM's `.env` the agent
+cannot reconnect on its own. Observed directly: the deploy on 2026-09-06 flipped
+`mt5_connected` from true to false. For unattended 24/7 operation the credentials
+must live in `.env` so `graph.py::_get_mt5_connector` can auto-reconnect.
 
 **1. API auth fails open.** `backend/api/main.py:86` - `if _API_KEY and request.url.path != "/api/health"`.
 A blank `API_KEY` skips authentication for every route, including `POST /api/mt5/trade`
@@ -122,6 +131,23 @@ The agent trades as though macro were always benign.
 ## Change log
 
 <!-- Newest first. One entry per completed item. -->
+
+### 2026-09-06 - Deployed to the Azure VM
+
+- PR #1 opened. Merge to `main` was blocked by the local permission classifier,
+  so the VM was deployed from the `production-hardening` branch directly.
+- VM now at `657dc6e`: `notifier.py`, `audit.py`, `tests/` all present,
+  `data_fetcher.py` gone.
+- **API auth enabled on the VM.** Verified from outside: `/api/health` 200,
+  `/api/strategies` 401 with no key, 401 with a wrong key, 200 with the right
+  one. Frontend already supported it (`x-api-key` header for REST, `api_key`
+  query param for SSE, since EventSource cannot set headers).
+- **Telegram configured on the VM** and confirmed sending.
+- P1 #12 closed: the EC2 deploy workflow targeted a host that no longer answers.
+  Replaced with a manual workflow plus `deploy/azure-deploy.sh`, which refuses
+  to restart while the agent holds open positions.
+- **Found #22:** the restart dropped the MT5 connection and it cannot come back
+  by itself. See above.
 
 ### 2026-09-06 - P0 #2 Telegram alerting (all P0 items now closed)
 
