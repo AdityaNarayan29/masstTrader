@@ -81,7 +81,7 @@ is empty. Untested safety code is not safety code.
 | 9 | Dead code: `backend/agent/data_fetcher.py` (107 lines, never imported) | **DONE** | 2026-09-06 |
 | 10 | Module-level mutable globals + 12 `global` statements in `main.py` | TODO | |
 | 11 | `main.py` is 2370 lines - all endpoints in one module | TODO | |
-| 12 | Deploy workflow targets the old EC2 host, not the Azure VM | TODO | |
+| 12 | Deploy workflow targets the old EC2 host, not the Azure VM | **DONE** | 2026-09-06 |
 | 13 | No SQLite backup - trade history is unrecoverable if the disk dies | TODO | |
 
 ### Detail

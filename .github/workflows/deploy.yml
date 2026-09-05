@@ -1,27 +1,38 @@
-name: Deploy to EC2
+# Deployment is MANUAL.
+#
+# The previous version auto-deployed to an AWS EC2 Windows host on every push to
+# main. That host is gone (13.48.148.223 no longer answers on 8008 or 3389), so
+# the workflow only produced failing runs.
+#
+# The backend now runs on an Azure VM (rg-masstrader / masstrader-vm, Sweden
+# Central), which is driven through `az vm run-command` rather than SSH. Wiring
+# that into Actions needs an Azure service principal in repo secrets; until that
+# exists, deploy from a workstation:
+#
+#     ./deploy/azure-deploy.sh
+#
+# Auto-deploy on push is deliberately NOT enabled: restarting the backend while
+# the agent holds open positions would drop them mid-trade.
+
+name: Deploy (manual)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'backend/**'
-      - 'requirements.txt'
-      - 'config/**'
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DEPLOY to confirm'
+        required: true
+        default: ''
 
 jobs:
-  deploy:
+  guard:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to EC2 via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: Administrator
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          script: |
-            cd C:\masstTrader
-            git pull origin main
-            C:\masstTrader\.venv\Scripts\pip.exe install -r requirements.txt --quiet
-            C:\nssm\nssm.exe restart massttrader
-            echo "Deployed successfully!"
+      - name: Explain the current deploy path
+        run: |
+          echo "Automated deploy is not configured for the Azure VM."
+          echo "Run ./deploy/azure-deploy.sh from a machine with 'az' logged in."
+          echo "See the comments at the top of this file."
+          if [ "${{ github.event.inputs.confirm }}" != "DEPLOY" ]; then
+            echo "Not confirmed; nothing to do."
+          fi
