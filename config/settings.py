@@ -33,6 +33,10 @@ class Settings:
     WATCHLIST: str = os.getenv("WATCHLIST", "XAUUSDm,BTCUSDm")
     LOOP_INTERVAL_SECONDS: str = os.getenv("LOOP_INTERVAL_SECONDS", "300")
 
+    # Telegram alerts (V2 agent). Unset = alerting disabled (no-op).
+    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
+
     # Crypto exchanges (optional — for BTC trading)
     BINANCE_API_KEY: str = os.getenv("BINANCE_API_KEY", "")
     BINANCE_API_SECRET: str = os.getenv("BINANCE_API_SECRET", "")

@@ -27,7 +27,7 @@
 | Backtester | Working, 42 trades on demo data | `/api/backtest/run` |
 | V2 agent | Cycles run; signal generator is rule-based, not LLM | `/api/agent/cycle` |
 | Frontend | Next.js 16, 9 pages, all 200 | local `:3000` |
-| Tests | 40 passing (`pytest -q`) | indicators, risk calculator, API auth, audit log |
+| Tests | 64 passing (`pytest -q`) | indicators, risk, auth, audit, notifier |
 
 ---
 
@@ -36,7 +36,7 @@
 | # | Item | Status | Done |
 | --- | --- | --- | --- |
 | 1 | API auth fails open - blank `API_KEY` disables all auth | **DONE** | 2026-09-06 |
-| 2 | No Telegram/alerting - agent runs unattended with no way to report failure | TODO | |
+| 2 | No Telegram/alerting - agent runs unattended with no way to report failure | **DONE** | 2026-09-06 |
 | 3 | No structured audit log (spec S10 requires daily JSON in `logs/`) | **DONE** | 2026-09-06 |
 | 4 | Kill switches (daily/weekly drawdown) have never been executed or tested | **DONE** | 2026-09-06 |
 | 5 | Local bug fixes are uncommitted - a VM rebuild reintroduces them | TODO | |
@@ -122,6 +122,32 @@ The agent trades as though macro were always benign.
 ## Change log
 
 <!-- Newest first. One entry per completed item. -->
+
+### 2026-09-06 - P0 #2 Telegram alerting (all P0 items now closed)
+
+**Added `backend/agent/notifier.py`** - bot `@MasstTrader_bot`, wired into the
+agent lifecycle in `graph.py`.
+- Alert types per spec S9: trade opened / closed / partial exit, daily and weekly
+  drawdown kill switches, circuit breaker, DXY and funding blocks, withdrawal
+  trigger, calibration drift, agent error, daily summary, startup, shutdown.
+- **Never raises.** Network failure, HTTP error, throttling and missing config all
+  return False. Alerting must not be able to stop the trading loop.
+- **No-op when unconfigured**, so demo and dev runs need no Telegram at all.
+- Local rate limit of 18/min - Telegram throttles ~20/min per chat, and being
+  throttled precisely while reporting a crisis is the worst time for it.
+  Honours the server's `retry_after` on 429.
+- HTML-escapes all interpolated content. Signal reasoning comes from an LLM, and
+  a stray `<` breaks `parse_mode=HTML` silently.
+- **De-duplicated halts.** A drawdown halt persists across cycles; alerting every
+  5 minutes until it clears would be unusable. Alerts fire on the transition, and
+  again if the condition clears and returns.
+- `risk_calculator.py` now reports *why* it halted via `state["risk_halt"]`
+  instead of silently returning no orders - the halt reason was previously
+  visible only in a log line.
+- *Verified:* 24 unit tests (retries, 429 backoff, rate limit, escaping, truncation,
+  de-dup, never-raise), plus live sends to chat `7942290807` - startup,
+  trade-opened, and drawdown-halt alerts all delivered, and a repeated halt
+  correctly suppressed.
 
 ### 2026-09-06 - P0 #3 structured audit log
 
