@@ -358,14 +358,18 @@ def add_volume_profile(df: pd.DataFrame, lookback: int = 100, num_levels: int = 
             lo_idx = poc_idx
             hi_idx = poc_idx
             while accumulated < target_vol and (lo_idx > 0 or hi_idx < num_levels - 1):
-                expand_up = vol_at_level[hi_idx + 1] if hi_idx < num_levels - 1 else 0
-                expand_down = vol_at_level[lo_idx - 1] if lo_idx > 0 else 0
-                if expand_up >= expand_down:
+                can_up = hi_idx < num_levels - 1
+                can_down = lo_idx > 0
+                expand_up = vol_at_level[hi_idx + 1] if can_up else 0
+                expand_down = vol_at_level[lo_idx - 1] if can_down else 0
+                if can_up and (not can_down or expand_up >= expand_down):
                     hi_idx += 1
                     accumulated += vol_at_level[hi_idx]
-                else:
+                elif can_down:
                     lo_idx -= 1
                     accumulated += vol_at_level[lo_idx]
+                else:
+                    break
             vah[i] = level_mids[hi_idx]
             val_[i] = level_mids[lo_idx]
 

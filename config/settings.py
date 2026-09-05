@@ -20,6 +20,8 @@ class Settings:
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
     AI_PROVIDER: str = os.getenv("AI_PROVIDER", "groq")
+    # Groq deprecates model IDs periodically — override here without a code change.
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
     # Security
     API_KEY: str = os.getenv("API_KEY", "")

@@ -35,7 +35,7 @@ def _call_llm(system_prompt: str, user_prompt: str, json_mode: bool = False) -> 
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
-        kwargs = {"model": "llama-3.3-70b-versatile", "messages": messages, "max_tokens": 4096}
+        kwargs = {"model": settings.GROQ_MODEL, "messages": messages, "max_tokens": 4096}
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
         response = client.chat.completions.create(**kwargs)
