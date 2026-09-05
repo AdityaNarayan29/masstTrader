@@ -179,6 +179,17 @@ masstTrader/
 └── requirements.txt            # Python dependencies
 ```
 
+## Documentation
+
+| Document | Covers |
+| --- | --- |
+| [SKILLS.md](SKILLS.md) | Production-readiness tracker - prioritised work, status, change log |
+| [docs/DESIGN.md](docs/DESIGN.md) | Design system: tokens, primitives, layout rules |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System internals and data flow |
+| [FeatureRequirements.md](FeatureRequirements.md) | V2 autonomous-agent spec and risk rules |
+| [deploy/VPS-SETUP.md](deploy/VPS-SETUP.md) | Windows VPS deployment runbook |
+| [docs/README.md](docs/README.md) | Full documentation index |
+
 ## Setup
 
 ### Backend (AWS EC2 Windows)

@@ -41,6 +41,28 @@
   --sidebar-accent-foreground: oklch(0.18 0 0);
   --sidebar-border: oklch(0.88 0.01 162);
   --sidebar-ring: oklch(0.52 0.17 162.48);
+
+  /* Trading semantics. Directional colour is the most-read signal in a
+     trading UI, so it gets first-class tokens instead of ad-hoc greens
+     and reds. Deliberately NOT the same green as --primary: brand and
+     "price up" must stay distinguishable, or every accent reads as a gain. */
+  --up: oklch(0.58 0.15 155);
+  --up-fg: oklch(0.98 0 0);
+  --up-muted: oklch(0.94 0.04 155);
+  --down: oklch(0.58 0.19 25);
+  --down-fg: oklch(0.98 0 0);
+  --down-muted: oklch(0.95 0.04 25);
+  --flat: oklch(0.55 0 0);
+  --warn: oklch(0.72 0.16 75);
+
+  /* Surface elevation: depth cues that do not rely on shadows, which
+     disappear against dark backgrounds. */
+  --surface-1: oklch(1 0 0);
+  --surface-2: oklch(0.975 0.002 162);
+  --surface-3: oklch(0.955 0.004 162);
+
+  /* Lighter than --border so dense table rows do not read as a cage. */
+  --grid-line: oklch(0.92 0.004 162);
 }
 
 @theme inline {
@@ -77,6 +99,18 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-up: var(--up);
+  --color-up-fg: var(--up-fg);
+  --color-up-muted: var(--up-muted);
+  --color-down: var(--down);
+  --color-down-fg: var(--down-fg);
+  --color-down-muted: var(--down-muted);
+  --color-flat: var(--flat);
+  --color-warn: var(--warn);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-grid-line: var(--grid-line);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -127,6 +161,23 @@ body {
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 12%);
   --sidebar-ring: oklch(0.696 0.17 162.48);
+
+  /* Trading semantics - dark. Raised lightness so they stay legible on
+     a near-black ground without turning neon. */
+  --up: oklch(0.75 0.17 155);
+  --up-fg: oklch(0.12 0 0);
+  --up-muted: oklch(0.28 0.06 155);
+  --down: oklch(0.68 0.20 25);
+  --down-fg: oklch(0.12 0 0);
+  --down-muted: oklch(0.28 0.07 25);
+  --flat: oklch(0.62 0 0);
+  --warn: oklch(0.80 0.16 75);
+
+  --surface-1: oklch(0.145 0 0);
+  --surface-2: oklch(0.175 0 0);
+  --surface-3: oklch(0.205 0 0);
+
+  --grid-line: oklch(1 0 0 / 7%);
 }
 
 /* Prose overrides for lesson/chat markdown */
@@ -147,4 +198,31 @@ body {
   body {
     @apply bg-background text-foreground;
   }
+}
+
+
+/* Numeric type. Prices must align vertically and must not reflow as
+   digits change: tabular figures fix column drift, slashed zero stops
+   0/O confusion in symbols and ticket numbers. */
+@utility tnum {
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: "tnum", "zero";
+}
+
+@utility price {
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: "tnum", "zero";
+  letter-spacing: -0.01em;
+}
+
+/* Brief flash when a value ticks, so a change is noticed without
+   the eye having to track every cell. */
+@keyframes flash-up   { from { background-color: var(--up-muted);   } to { background-color: transparent; } }
+@keyframes flash-down { from { background-color: var(--down-muted); } to { background-color: transparent; } }
+
+.tick-up   { animation: flash-up 600ms ease-out; }
+.tick-down { animation: flash-down 600ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tick-up, .tick-down { animation: none; }
 }

@@ -118,6 +118,7 @@ Two concurrent backtests race on `historical_data`.
 | 19 | Confidence calibration tracking | TODO | |
 | 20 | Withdrawal automation (spec S8) | TODO | |
 | 21 | No agent page in the frontend - agent is API-only | TODO | |
+| 23 | UI was form-first, not market-first - no chart, no persistent price, `max-w-5xl` on a 1440px canvas | **PARTIAL** | 2026-09-06 |
 
 ### Detail
 
@@ -131,6 +132,48 @@ The agent trades as though macro were always benign.
 ## Change log
 
 <!-- Newest first. One entry per completed item. -->
+
+### 2026-09-06 - Design system + Market Watch redesign
+
+**Diagnosis (from screenshots, not assumption).** The UI was form-first: every
+screen opened with a settings card, content was capped at `max-w-5xl` on a
+1440px display, and `/live` rendered *nothing* until you pressed "Watch Market".
+A trading screen that shows no market on arrival.
+
+**Added trading tokens** to `globals.css`, light and dark:
+- `--up` / `--down` / `--flat` / `--warn`, kept deliberately separate from
+  `--primary`. When brand green and profit green are the same value, every
+  button reads as a gain and the signal stops meaning anything.
+- `--surface-1..3` for elevation without shadows, which vanish on dark grounds.
+- `--grid-line`, lighter than `--border`, so dense tables read as rows not cages.
+- `.price` / `.tnum` utilities: `tabular-nums` + `slashed-zero`. Without tabular
+  figures a price column shivers horizontally on every tick.
+- `tick-up` / `tick-down` flash, wrapped in `prefers-reduced-motion`.
+
+**Added primitives** in `components/trade/`:
+- `MarketBar` - persistent symbol / bid / ask / spread / balance / equity /
+  unrealised. The fix for "nothing on screen tells me what the market is doing".
+- `Panel` / `Empty` - denser than shadcn `Card`, which wastes about a third of
+  the viewport once six are stacked.
+- `Stat` / `StatRow`, and `num.tsx` with one set of formatters so a price never
+  renders at two precisions in two places.
+- `dir()` treats exactly 0 as flat, not up - breakeven in green overstates it.
+
+**Rebuilt `/live`** as a terminal: full-width, chart-dominant, right rail,
+docked positions table, loads on arrival. `layout-shell.tsx` gives
+`/live`, `/algo`, `/backtest` a flush full-height `<main>`.
+
+**Degraded state.** With MT5 down the chart now falls back to generated candles
+behind an unmissable `SAMPLE DATA` banner rather than going blank. An unlabelled
+fake chart would be worse than either, hence the banner.
+
+**Docs:** `docs/DESIGN.md` (tokens, primitives, layout rules, new-screen
+checklist) and `docs/README.md` (documentation index). README now carries a
+documentation map.
+
+**Still TODO:** `/algo` (1823 lines, needs decomposition), `/backtest`,
+`/strategy`, `/ml`, `/analyzer`, `/tutor`, `/connection` still use the old
+card-stack layout.
 
 ### 2026-09-06 - Deployed to the Azure VM
 
