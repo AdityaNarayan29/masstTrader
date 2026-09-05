@@ -48,6 +48,13 @@ anything.
 **Zero is flat, never up.** `dir()` in `components/trade/num.tsx` returns
 `"flat"` for `0`. Rendering a breakeven trade in green overstates the result.
 
+**Errors are not "down".** A failed request uses `--destructive`, not `--down`.
+Red-for-loss and red-for-error mean different things and must stay separable.
+
+**Brand greens stay brand.** The landing page and architecture diagram keep
+`--primary` / their own palette. Mapping a marketing CTA to `--up` would assert
+that something went up.
+
 ### Surfaces
 
 `--surface-1` (panels) → `--surface-2` (bars, hover) → `--surface-3` (raised).

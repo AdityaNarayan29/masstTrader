@@ -1,5 +1,7 @@
 "use client";
 
+import { Loader2 } from "lucide-react";
+
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
@@ -92,10 +94,10 @@ export default function AnalyzerPage() {
   const scoreColor =
     score !== null
       ? score >= 70
-        ? "border-green-500/40 bg-green-500/10 text-green-400"
+        ? "border-up/40 bg-up/10 text-up"
         : score >= 40
           ? "border-yellow-500/40 bg-yellow-500/10 text-yellow-400"
-          : "border-red-500/40 bg-red-500/10 text-red-400"
+          : "border-down/40 bg-down/10 text-down"
       : "";
 
   const scoreLabel =
@@ -108,7 +110,7 @@ export default function AnalyzerPage() {
       : "";
 
   return (
-    <div className="w-full space-y-4">
+    <div className="flex w-full flex-1 flex-col space-y-4">
       <div>
         <h1 className="text-lg font-semibold tracking-tight">AI Trade Analyzer</h1>
         <p className="text-muted-foreground text-sm mt-1">
@@ -118,7 +120,7 @@ export default function AnalyzerPage() {
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="rounded-lg border border-down/30 bg-down/10 px-4 py-3 text-sm text-down">
           {error}
         </div>
       )}
@@ -356,6 +358,41 @@ export default function AnalyzerPage() {
           </Card>
         );
       })()}
+
+      {/* Result area. Previously the form ended and ~1800px of nothing followed
+          until an analysis came back. An empty result region should say what
+          the analysis will contain, so the value is legible before you commit
+          to filling in a form. */}
+      {!analysis && !loading && (
+        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-surface-1 px-6 py-10 text-center">
+          <p className="text-sm font-medium">No analysis yet</p>
+          <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+            Fill in the trade you took and press{" "}
+            <span className="font-medium">Analyze Trade with AI</span>. You&apos;ll
+            get an alignment score against your strategy rules, which conditions
+            were met or violated, and coaching on what to do differently.
+          </p>
+          <div className="mx-auto mt-5 grid max-w-md grid-cols-3 gap-2 text-left">
+            {["Alignment score", "Rule-by-rule check", "Coaching notes"].map((f) => (
+              <div
+                key={f}
+                className="rounded border border-grid-line px-2 py-1.5 text-[11px] text-muted-foreground"
+              >
+                {f}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {loading && !analysis && (
+        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-border bg-surface-1 px-6 py-10 text-center">
+          <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
+          <p className="mt-3 text-xs text-muted-foreground">
+            Comparing your trade against the strategy rules…
+          </p>
+        </div>
+      )}
 
       {/* AI Analysis */}
       {analysis && (

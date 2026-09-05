@@ -118,7 +118,7 @@ Two concurrent backtests race on `historical_data`.
 | 19 | Confidence calibration tracking | TODO | |
 | 20 | Withdrawal automation (spec S8) | TODO | |
 | 21 | No agent page in the frontend - agent is API-only | TODO | |
-| 23 | UI was form-first, not market-first - no chart, no persistent price, `max-w-5xl` on a 1440px canvas | **PARTIAL** | 2026-09-06 |
+| 23 | UI was form-first, not market-first - no chart, no persistent price, `max-w-5xl` on a 1440px canvas | **DONE** | 2026-09-06 |
 
 ### Detail
 
@@ -132,6 +132,39 @@ The agent trades as though macro were always benign.
 ## Change log
 
 <!-- Newest first. One entry per completed item. -->
+
+### 2026-09-06 - All 9 pages audited and fixed; tokens actually adopted
+
+Captured every page with Playwright at 1512px (tall viewport - the app scrolls
+inside `main`, so `full_page` returns only the viewport) and worked through each.
+
+**`/algo` - the worst offender.** An algo trading page **with no chart on it**.
+`historicalCandles` was only fetched once an algo was already running, so
+arriving gave you a form, a rules card and ~1700px of empty space. The chart is
+how you judge whether a strategy's conditions make sense *before* running it,
+which is exactly when it was missing. Now loads on arrival. Price bar was three
+~110px cards with `text-2xl` figures for three numbers; now a compact strip that
+also carries equity and floating P&L, reusing the page's existing stream rather
+than mounting `MarketBar` and opening a second SSE connection.
+
+**`/analyzer`** - form ended at 600px, then ~1800px of nothing. Now full width
+with a result region that says what the analysis contains.
+
+**Landing** - structurally good. Fixed one real flaw: 7 feature cards in a
+3-column grid left an orphan on the last row, which reads as a mistake. The
+remainder is now centred, via a selector that keeps working if a feature is
+added or removed.
+
+**Design tokens actually adopted.** The tokens existed but ~200 raw
+`text-green-500` / `text-red-500` usages meant almost nothing used them - a
+design system nobody applies is just a stylesheet. Migrated 77 lines across 7
+files to `text-up` / `text-down` / `bg-up` / `border-down`. Deliberately
+excluded:
+- lines mentioning `error`/`destructive` - an error is destructive, not "down";
+  the two real cases in `/ml` were moved to `text-destructive`
+- `app/page.tsx` and `architecture-diagram.tsx` - their greens are brand and
+  diagram palette. Mapping those to `--up` would assert "this went up" about a
+  marketing button.
 
 ### 2026-09-06 - /connection redesigned; deposit-shown-as-profit bug fixed
 

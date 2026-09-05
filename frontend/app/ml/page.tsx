@@ -377,7 +377,7 @@ export default function MLDashboardPage() {
           </div>
 
           {xgbResult && (
-            <div className={`p-3 rounded-lg border ${xgbResult.success ? "bg-green-500/5 border-green-500/20" : "bg-red-500/5 border-red-500/20"}`}>
+            <div className={`p-3 rounded-lg border ${xgbResult.success ? "bg-up/5 border-up/20" : "bg-down/5 border-down/20"}`}>
               {xgbResult.success ? (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
@@ -431,7 +431,7 @@ export default function MLDashboardPage() {
                   )}
                 </div>
               ) : (
-                <div className="text-sm text-red-500">{xgbResult.error}</div>
+                <div className="text-sm text-destructive">{xgbResult.error}</div>
               )}
             </div>
           )}
@@ -485,7 +485,7 @@ export default function MLDashboardPage() {
             </Button>
 
             {lstmResult && (
-              <div className={`p-3 rounded-lg border text-sm ${lstmResult.success ? "bg-green-500/5 border-green-500/20" : "bg-red-500/5 border-red-500/20"}`}>
+              <div className={`p-3 rounded-lg border text-sm ${lstmResult.success ? "bg-up/5 border-up/20" : "bg-down/5 border-down/20"}`}>
                 {lstmResult.success ? (
                   <div className="space-y-2">
                     <Badge variant="default">Training Complete</Badge>
@@ -512,7 +512,7 @@ export default function MLDashboardPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="text-red-500">{lstmResult.error}</div>
+                  <div className="text-destructive">{lstmResult.error}</div>
                 )}
               </div>
             )}
@@ -560,9 +560,9 @@ export default function MLDashboardPage() {
                   <>
                     <div className="text-4xl">
                       {prediction.direction === "up" ? (
-                        <span className="text-green-500">&#x25B2;</span>
+                        <span className="text-up">&#x25B2;</span>
                       ) : prediction.direction === "down" ? (
-                        <span className="text-red-500">&#x25BC;</span>
+                        <span className="text-down">&#x25BC;</span>
                       ) : (
                         <span className="text-muted-foreground">&#x25C6;</span>
                       )}
@@ -650,7 +650,7 @@ export default function MLDashboardPage() {
               </div>
               <div className="p-3 rounded-lg bg-muted/50">
                 <div className="text-xs text-muted-foreground">ML Win Rate</div>
-                <div className="text-2xl font-bold font-mono text-green-500">{tradeAnalysis.ml_win_rate}%</div>
+                <div className="text-2xl font-bold font-mono text-up">{tradeAnalysis.ml_win_rate}%</div>
               </div>
             </div>
 

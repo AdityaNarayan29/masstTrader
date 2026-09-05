@@ -267,37 +267,37 @@ export default function BacktestPage() {
         {
           label: "Win Rate",
           value: `${stats.win_rate.toFixed(1)}%`,
-          color: stats.win_rate >= 50 ? "text-green-500" : "text-red-500",
+          color: stats.win_rate >= 50 ? "text-up" : "text-down",
         },
         {
           label: "Total Profit",
           value: `$${stats.total_profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-          color: stats.total_profit >= 0 ? "text-green-500" : "text-red-500",
+          color: stats.total_profit >= 0 ? "text-up" : "text-down",
         },
         {
           label: "Profit Factor",
           value: stats.profit_factor.toFixed(2),
-          color: stats.profit_factor >= 1 ? "text-green-500" : "text-red-500",
+          color: stats.profit_factor >= 1 ? "text-up" : "text-down",
         },
         {
           label: "Max Drawdown",
           value: `${stats.max_drawdown.toFixed(2)}%`,
-          color: "text-red-500",
+          color: "text-down",
         },
         {
           label: "Sharpe Ratio",
           value: stats.sharpe_ratio.toFixed(2),
-          color: stats.sharpe_ratio >= 1 ? "text-green-500" : stats.sharpe_ratio >= 0 ? "text-muted-foreground" : "text-red-500",
+          color: stats.sharpe_ratio >= 1 ? "text-up" : stats.sharpe_ratio >= 0 ? "text-muted-foreground" : "text-down",
         },
         {
           label: "Avg Win",
           value: `$${stats.avg_win.toFixed(2)}`,
-          color: "text-green-500",
+          color: "text-up",
         },
         {
           label: "Avg Loss",
           value: `$${stats.avg_loss.toFixed(2)}`,
-          color: "text-red-500",
+          color: "text-down",
         },
       ]
     : [];
@@ -315,7 +315,7 @@ export default function BacktestPage() {
       {/* Error */}
       {error && (
         <Card className="border-destructive/50 bg-destructive/10">
-          <CardContent className="py-3 text-sm text-red-500">
+          <CardContent className="py-3 text-sm text-down">
             {error}
           </CardContent>
         </Card>
@@ -673,7 +673,7 @@ export default function BacktestPage() {
                         </TableCell>
                         <TableCell
                           className={`text-right font-medium ${
-                            t.pnl_pips >= 0 ? "text-green-500" : "text-red-500"
+                            t.pnl_pips >= 0 ? "text-up" : "text-down"
                           }`}
                         >
                           {t.pnl_pips >= 0 ? "+" : ""}
@@ -681,7 +681,7 @@ export default function BacktestPage() {
                         </TableCell>
                         <TableCell
                           className={`text-right font-semibold ${
-                            t.profit >= 0 ? "text-green-500" : "text-red-500"
+                            t.profit >= 0 ? "text-up" : "text-down"
                           }`}
                         >
                           {t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}

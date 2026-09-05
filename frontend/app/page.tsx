@@ -258,7 +258,7 @@ export default function Home() {
             Everything you need to learn, test, and execute trading strategies
           </p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 justify-center gap-4 md:grid-cols-2 lg:grid-cols-3 [&>*:last-child:nth-child(3n-2)]:lg:col-start-2">
           {FEATURES.map((feature) => (
             <Link key={feature.href} href={feature.href} className="group">
               <Card className="h-full transition-all hover:border-primary/50 hover:bg-accent/30 hover:shadow-lg hover:shadow-primary/5">

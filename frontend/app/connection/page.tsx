@@ -473,8 +473,8 @@ export default function ConnectionPage() {
                         <p
                           className={`font-semibold ${
                             pos.profit >= 0
-                              ? "text-green-500"
-                              : "text-red-500"
+                              ? "text-up"
+                              : "text-down"
                           }`}
                         >
                           {pos.profit >= 0 ? "+" : ""}
