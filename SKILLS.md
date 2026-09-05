@@ -133,6 +133,28 @@ The agent trades as though macro were always benign.
 
 <!-- Newest first. One entry per completed item. -->
 
+### 2026-09-06 - /connection redesigned; deposit-shown-as-profit bug fixed
+
+**Correctness bug found while redesigning.** MT5 trade history includes balance
+operations (deposits, withdrawals, credits) alongside real trades. They have no
+symbol and zero volume, and the page rendered them as `Unknown` / `sell` with
+the amount in profit-green: the $5,000 account funding displayed as
+**"P/L +5000.00"**. Money paid in, shown as money made. Balance operations are
+now detected (no symbol, or zero volume, or a balance/credit type) and rendered
+as `Deposit`/`Withdrawal` with a neutral amount.
+
+**Layout.**
+- Removed the `max-w-4xl` cap I had wrongly left on this page - it has two
+  tables and wants the width. ~370px of dead margin recovered.
+- Account block: four ~200x80px cards replaced by one divided 5-metric strip.
+  Boxing each figure separately adds chrome without adding meaning.
+- Trade history: ~78px cards to ~29px table rows.
+- Positions and history now **load automatically** once connected, instead of
+  showing a panel whose only content was "click Refresh to load". The manual
+  buttons remain for re-fetching.
+- Deleted descriptions that restated their own heading ("View currently open
+  trades on your MT5 account" under "Open Positions").
+
 ### 2026-09-06 - Every page audited; global layout fixes
 
 Screenshotted all 9 pages at 1512x900 and reviewed each. The same three faults

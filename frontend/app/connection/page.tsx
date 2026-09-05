@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { fmtMoney, Signed } from "@/components/trade/num";
 import { api } from "@/lib/api";
 import { useDemoMode, setDemoMode, isDemoMode } from "@/lib/demo";
 import { demoAccount } from "@/lib/demo/demo-data";
@@ -106,6 +107,12 @@ export default function ConnectionPage() {
         api.mt5.account().then(setAccount).catch((e: Error) => console.error(e.message));
       }
       if (h.has_env_creds) setHasEnvCreds(true);
+      // Connected means the data is already available — fetch it rather than
+      // rendering a panel whose only content is "click to load".
+      if (h.mt5_connected) {
+        api.mt5.positions().then(setPositions).catch(() => {});
+        api.data.history(Number(historyDays) || 7).then(setTrades).catch(() => {});
+      }
     }).catch((e: Error) => console.error(e.message));
   }, [isDemo]);
 
@@ -214,7 +221,7 @@ export default function ConnectionPage() {
   };
 
   return (
-    <div className="w-full max-w-4xl space-y-4">
+    <div className="w-full space-y-4">
       {/* Page Header */}
       <div>
         <h1 className="text-lg font-semibold tracking-tight">MT5 Connection</h1>
@@ -333,84 +340,62 @@ export default function ConnectionPage() {
         </Card>
       )}
 
-      {/* Account Info Card */}
+      {/* Account summary — a compact divided strip rather than four ~200x80px
+          cards for four numbers. Boxing each figure separately adds chrome
+          without adding meaning. */}
       {connected && account && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Account Information</CardTitle>
-                <CardDescription>
-                  {account.name} &mdash; {account.server}
-                  {account.login > 0 && ` (${account.login})`}
-                </CardDescription>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDisconnect}
-                disabled={loading}
-              >
-                {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <LogOut className="h-4 w-4" />
-                )}
-                Disconnect
-              </Button>
+        <div className="overflow-hidden rounded-lg border border-border bg-surface-1">
+          <div className="flex h-10 items-center justify-between gap-2 border-b border-border px-3">
+            <div className="flex min-w-0 items-baseline gap-2">
+              <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Account
+              </h2>
+              <span className="price truncate text-xs text-muted-foreground">
+                {account.name} · {account.server}
+                {account.login > 0 && ` · ${account.login}`}
+              </span>
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              {[
-                {
-                  label: "Balance",
-                  value: `${account.currency === "USD" ? "$" : account.currency + " "}${account.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                },
-                {
-                  label: "Equity",
-                  value: `${account.currency === "USD" ? "$" : account.currency + " "}${account.equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                },
-                {
-                  label: "Free Margin",
-                  value: `${account.currency === "USD" ? "$" : account.currency + " "}${account.free_margin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                },
-                {
-                  label: "Leverage",
-                  value: `1:${account.leverage}`,
-                },
-              ].map((metric) => (
-                <Card key={metric.label} className="py-4">
-                  <CardContent className="px-4">
-                    <p className="text-xs text-muted-foreground">
-                      {metric.label}
-                    </p>
-                    <p className="text-xl font-semibold mt-1">
-                      {metric.value}
-                    </p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={handleDisconnect}
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <LogOut className="h-3 w-3" />
+              )}
+              Disconnect
+            </Button>
+          </div>
 
-            {account.profit !== 0 && (
-              <div className="mt-4 flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">
-                  Floating P/L:
-                </span>
-                <Badge
-                  variant={account.profit >= 0 ? "default" : "destructive"}
-                >
-                  {account.profit >= 0 ? "+" : ""}
-                  {account.profit.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </Badge>
+          <div className="grid grid-cols-2 divide-x divide-border sm:grid-cols-5">
+            {[
+              { label: "Balance", value: fmtMoney(account.balance) },
+              { label: "Equity", value: fmtMoney(account.equity) },
+              { label: "Free margin", value: fmtMoney(account.free_margin) },
+              { label: "Margin", value: fmtMoney(account.margin) },
+            ].map((m) => (
+              <div key={m.label} className="px-3 py-2">
+                <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {m.label}
+                </div>
+                <div className="price mt-0.5 text-base font-semibold">{m.value}</div>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            ))}
+            <div className="px-3 py-2">
+              <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                Floating P&amp;L
+              </div>
+              <div className="mt-0.5 text-base font-semibold">
+                <Signed value={account.profit} format={(v) => fmtMoney(v)} />
+              </div>
+              <div className="text-[10px] text-muted-foreground">1:{account.leverage}</div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Open Positions Section */}
@@ -419,7 +404,6 @@ export default function ConnectionPage() {
           <CardHeader>
             <CardTitle>Open Positions</CardTitle>
             <CardDescription>
-              View currently open trades on your MT5 account
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -505,7 +489,7 @@ export default function ConnectionPage() {
 
             {positions.length === 0 && !positionsLoading && (
               <p className="mt-3 text-sm text-muted-foreground">
-                No open positions. Click &quot;Refresh Positions&quot; to load.
+                No open positions on this account.
               </p>
             )}
           </CardContent>
@@ -518,7 +502,6 @@ export default function ConnectionPage() {
           <CardHeader>
             <CardTitle>Trade History</CardTitle>
             <CardDescription>
-              Review closed trades from your account history
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -544,100 +527,96 @@ export default function ConnectionPage() {
             </div>
 
             {trades.length > 0 && (
-              <div className="mt-4 space-y-3">
-                <div className="space-y-2">
-                  {trades.map((trade, index) => (
-                    <div
-                      key={trade.ticket ? Number(trade.ticket) : index}
-                      className="flex flex-wrap items-center justify-between gap-4 rounded-lg border p-4"
-                    >
-                      <div className="flex items-center gap-3">
-                        {trade.type && (
-                          <Badge
-                            variant={
-                              String(trade.type)
-                                .toLowerCase()
-                                .includes("buy")
-                                ? "default"
-                                : "destructive"
-                            }
-                          >
-                            {String(trade.type)}
-                          </Badge>
-                        )}
-                        <div>
-                          <p className="font-medium text-sm">
-                            {trade.symbol
-                              ? String(trade.symbol)
-                              : "Unknown"}
-                          </p>
-                          {trade.ticket && (
-                            <p className="text-xs text-muted-foreground">
-                              Ticket #{Number(trade.ticket)}
-                            </p>
-                          )}
-                        </div>
-                      </div>
+              <div className="mt-3 overflow-hidden rounded-lg border border-border">
+                <div className="max-h-[320px] overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-surface-2">
+                      <tr className="border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground">
+                        <th className="px-3 py-2 text-left font-medium">Symbol</th>
+                        <th className="px-3 py-2 text-left font-medium">Type</th>
+                        <th className="px-3 py-2 text-right font-medium">Volume</th>
+                        <th className="px-3 py-2 text-right font-medium">Open</th>
+                        <th className="px-3 py-2 text-right font-medium">Close</th>
+                        <th className="px-3 py-2 text-right font-medium">Ticket</th>
+                        <th className="px-3 py-2 text-right font-medium">Result</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {trades.map((trade, index) => {
+                        // MT5 history includes balance operations (deposits,
+                        // withdrawals, credits) alongside trades. They have no
+                        // symbol and no volume. Rendering a $5,000 deposit as
+                        // "P/L +5000.00" in profit-green is actively misleading —
+                        // it is money you put in, not money you made.
+                        const rawType = String(trade.type ?? "").toLowerCase();
+                        const hasSymbol = Boolean(trade.symbol);
+                        const isBalanceOp =
+                          !hasSymbol ||
+                          rawType.includes("balance") ||
+                          rawType.includes("credit") ||
+                          Number(trade.volume ?? 0) === 0;
+                        const profit = Number(trade.profit ?? 0);
+                        const isBuy = rawType.includes("buy");
 
-                      <div className="grid grid-cols-2 sm:flex items-center gap-3 sm:gap-6 text-sm">
-                        {trade.volume !== undefined && (
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              Volume
-                            </p>
-                            <p className="font-medium">
-                              {Number(trade.volume)}
-                            </p>
-                          </div>
-                        )}
-                        {trade.open_price !== undefined && (
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              Open
-                            </p>
-                            <p className="font-medium">
-                              {Number(trade.open_price)}
-                            </p>
-                          </div>
-                        )}
-                        {trade.close_price !== undefined && (
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              Close
-                            </p>
-                            <p className="font-medium">
-                              {Number(trade.close_price)}
-                            </p>
-                          </div>
-                        )}
-                        {trade.profit !== undefined && (
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              P/L
-                            </p>
-                            <p
-                              className={`font-semibold ${
-                                Number(trade.profit) >= 0
-                                  ? "text-green-500"
-                                  : "text-red-500"
-                              }`}
-                            >
-                              {Number(trade.profit) >= 0 ? "+" : ""}
-                              {Number(trade.profit).toFixed(2)}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                        return (
+                          <tr
+                            key={trade.ticket ? Number(trade.ticket) : index}
+                            className="border-b border-grid-line last:border-0 hover:bg-surface-2"
+                          >
+                            <td className="px-3 py-1.5 font-medium">
+                              {hasSymbol ? String(trade.symbol) : (
+                                <span className="text-muted-foreground">
+                                  {profit >= 0 ? "Deposit" : "Withdrawal"}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-1.5">
+                              {isBalanceOp ? (
+                                <span className="text-muted-foreground">balance</span>
+                              ) : (
+                                <span className={isBuy ? "text-up" : "text-down"}>
+                                  {isBuy ? "buy" : "sell"}
+                                </span>
+                              )}
+                            </td>
+                            <td className="price px-3 py-1.5 text-right">
+                              {isBalanceOp ? "—" : Number(trade.volume ?? 0)}
+                            </td>
+                            <td className="price px-3 py-1.5 text-right text-muted-foreground">
+                              {isBalanceOp || trade.open_price === undefined
+                                ? "—"
+                                : Number(trade.open_price)}
+                            </td>
+                            <td className="price px-3 py-1.5 text-right text-muted-foreground">
+                              {isBalanceOp || trade.close_price === undefined
+                                ? "—"
+                                : Number(trade.close_price)}
+                            </td>
+                            <td className="price px-3 py-1.5 text-right text-muted-foreground">
+                              {trade.ticket ? Number(trade.ticket) : "—"}
+                            </td>
+                            <td className="px-3 py-1.5 text-right">
+                              {isBalanceOp ? (
+                                // Neutral, not green: a deposit is not a gain.
+                                <span className="price text-muted-foreground">
+                                  {fmtMoney(profit)}
+                                </span>
+                              ) : (
+                                <Signed value={profit} format={(v) => fmtMoney(v)} />
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
 
             {trades.length === 0 && !tradesLoading && (
               <p className="mt-3 text-sm text-muted-foreground">
-                No trade history loaded. Select a time range and click
-                &quot;Load History&quot;.
+                No closed trades in the last {historyDays} days.
               </p>
             )}
           </CardContent>
