@@ -111,6 +111,52 @@ external does the same job as a hue without spending one.
 Sequenced nodes (the 7-node agent loop) all share one treatment. The step number
 already carries the order; a different hue per step competes with it.
 
+## 4c. Material (skeuomorphic layer)
+
+The metaphor is a **physical trading terminal**: a brushed-metal chassis holding
+raised control plates and recessed LCD readouts.
+
+### The one rule
+
+**A single light source, from above.** Mixed light directions are what make
+skeuomorphic interfaces look cheap.
+
+- raised -> highlight on the **top** edge, shadow **below**
+- recessed -> shadow **inside the top**, light on the **inner bottom**
+
+Every utility below obeys it.
+
+| Utility | Material | Used for |
+| --- | --- | --- |
+| `mat-chassis` | the surface things mount on | market bar, diagram ground |
+| `mat-plate` | raised control panel | `Panel`, diagram nodes we own |
+| `mat-well` | recessed housing | inputs, tracks, external systems |
+| `mat-key` / `mat-key-lit` | pressable control | buttons, tabs |
+| `mat-screen` + `.lcd` | backlit display | the live price |
+| `mat-lamp` | lensed indicator | connection status, pipeline steps |
+| `mat-etched` | engraved label | panel headers |
+| `mat-grain` | brushed-metal striations | chassis and plates |
+
+### Depth carries meaning, not just texture
+
+In the architecture diagram, **raised = a component we own, recessed = a system
+we do not**. You feel the difference before reading the label. That is the test
+for whether skeuomorphism is earning its place: if the material could be swapped
+for any other without losing information, it is decoration.
+
+### Data stays flat
+
+Embossing a price column costs contrast and reading speed, which is the one
+thing a trading UI cannot spend. **Depth is for chrome; numbers stay crisp.**
+The single exception is the LCD price readout, because on real hardware the
+display genuinely is the only lit element.
+
+### Gotcha
+
+`mat-key` sets `background-image`, which silently beats any `bg-*` utility.
+Use `mat-key-lit` for the selected state - the first version of the tab switcher
+lost its active fill this way and every tab looked unselected.
+
 ## 5. Layout
 
 Routes in `TERMINAL_ROUTES` (`/live`, `/algo`, `/backtest`) get a flush,

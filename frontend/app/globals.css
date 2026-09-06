@@ -226,3 +226,188 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .tick-up, .tick-down { animation: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   SKEUOMORPHIC MATERIAL LAYER
+   ═══════════════════════════════════════════════════════════════════
+   Metaphor: a physical trading terminal. A brushed-metal chassis holding
+   raised control plates and recessed LCD readouts.
+
+   The rule that makes skeuomorphism read as real rather than decorative:
+   ONE LIGHT SOURCE, from above.
+     · raised  -> light catches the TOP edge, shadow falls BELOW
+     · recessed-> shadow sits INSIDE the TOP, light catches the inner BOTTOM
+   Every surface below obeys that. Mixed light directions are what make
+   skeuomorphic UIs look cheap.
+
+   Data stays flat. Embossing a price column costs contrast and reading
+   speed, which is the one thing a trading UI cannot spend. Depth is for
+   chrome; numbers stay crisp. */
+
+:root {
+  /* Light rig */
+  --mat-light: 255 255 255;
+  --mat-dark: 0 0 0;
+  --mat-hi: 0.85;      /* top highlight strength */
+  --mat-lo: 0.16;      /* bottom shadow strength  */
+
+  /* Chassis: the surface everything is mounted on */
+  --mat-chassis: linear-gradient(180deg, oklch(0.965 0.003 162), oklch(0.93 0.004 162));
+  /* Plate: a raised control panel */
+  --mat-plate: linear-gradient(180deg, oklch(1 0 0), oklch(0.955 0.002 162));
+  /* Well: a recessed housing (displays, inputs, tracks) */
+  --mat-well: linear-gradient(180deg, oklch(0.90 0.004 162), oklch(0.965 0.002 162));
+  /* Key: a pressable control */
+  --mat-key: linear-gradient(180deg, oklch(0.995 0 0), oklch(0.93 0.003 162));
+  --mat-key-active: linear-gradient(180deg, oklch(0.90 0.004 162), oklch(0.965 0.002 162));
+
+  --mat-edge: oklch(0.80 0.006 162);
+  --mat-screen: oklch(0.22 0.02 160);
+  --mat-screen-fg: oklch(0.82 0.16 155);
+}
+
+.dark {
+  --mat-hi: 0.16;
+  --mat-lo: 0.85;
+
+  --mat-chassis: linear-gradient(180deg, oklch(0.20 0 0), oklch(0.125 0 0));
+  --mat-plate: linear-gradient(180deg, oklch(0.255 0 0), oklch(0.165 0 0));
+  --mat-well: linear-gradient(180deg, oklch(0.085 0 0), oklch(0.15 0 0));
+  --mat-key: linear-gradient(180deg, oklch(0.245 0 0), oklch(0.175 0 0));
+  --mat-key-active: linear-gradient(180deg, oklch(0.135 0 0), oklch(0.19 0 0));
+
+  --mat-edge: oklch(1 0 0 / 14%);
+  --mat-screen: oklch(0.14 0.02 160);
+  --mat-screen-fg: oklch(0.86 0.19 155);
+}
+
+/* Brushed-metal grain. Fine vertical striations, almost subliminal —
+   visible texture at this scale turns to noise on a 4K panel. */
+@utility mat-grain {
+  position: relative;
+}
+.mat-grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0.45;
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgb(var(--mat-light) / 0.014) 0px,
+    rgb(var(--mat-light) / 0.014) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+/* Raised control plate */
+@utility mat-plate {
+  background-image: var(--mat-plate);
+  border: 1px solid var(--mat-edge);
+  box-shadow:
+    inset 0 1px 0 rgb(var(--mat-light) / var(--mat-hi)),
+    inset 0 -1px 0 rgb(var(--mat-dark) / calc(var(--mat-lo) * 0.28)),
+    0 1px 2px rgb(var(--mat-dark) / calc(var(--mat-lo) * 0.45)),
+    0 6px 16px -6px rgb(var(--mat-dark) / calc(var(--mat-lo) * 0.5));
+}
+
+/* The chassis everything sits on */
+@utility mat-chassis {
+  background-image: var(--mat-chassis);
+  border: 1px solid var(--mat-edge);
+  box-shadow:
+    inset 0 1px 0 rgb(var(--mat-light) / calc(var(--mat-hi) * 0.7)),
+    0 2px 6px rgb(var(--mat-dark) / calc(var(--mat-lo) * 0.35));
+}
+
+/* Recessed well — inputs, tracks, display housings */
+@utility mat-well {
+  background-image: var(--mat-well);
+  border: 1px solid var(--mat-edge);
+  box-shadow:
+    inset 0 2px 4px rgb(var(--mat-dark) / calc(var(--mat-lo) * 0.55)),
+    inset 0 -1px 0 rgb(var(--mat-light) / calc(var(--mat-hi) * 0.55));
+}
+
+/* Pressable key */
+@utility mat-key {
+  background-image: var(--mat-key);
+  border: 1px solid var(--mat-edge);
+  box-shadow:
+    inset 0 1px 0 rgb(var(--mat-light) / var(--mat-hi)),
+    0 1px 1px rgb(var(--mat-dark) / calc(var(--mat-lo) * 0.4)),
+    0 3px 6px -2px rgb(var(--mat-dark) / calc(var(--mat-lo) * 0.5));
+  transition: box-shadow 90ms ease, transform 90ms ease, background-image 90ms ease;
+}
+.mat-key:active,
+.mat-key[data-state="on"],
+.mat-key[aria-pressed="true"] {
+  background-image: var(--mat-key-active);
+  box-shadow:
+    inset 0 2px 4px rgb(var(--mat-dark) / calc(var(--mat-lo) * 0.6)),
+    inset 0 -1px 0 rgb(var(--mat-light) / calc(var(--mat-hi) * 0.4));
+  transform: translateY(1px);
+}
+
+/* Backlit LCD readout. The one place colour glows, because on real hardware
+   the display is the only lit element. */
+@utility mat-screen {
+  background-color: var(--mat-screen);
+  border: 1px solid var(--mat-edge);
+  box-shadow:
+    inset 0 2px 6px rgb(var(--mat-dark) / 0.65),
+    inset 0 0 24px oklch(0.7 0.18 155 / 0.06);
+}
+.mat-screen .lcd {
+  color: var(--mat-screen-fg);
+  text-shadow: 0 0 10px oklch(0.75 0.2 155 / 0.45);
+}
+
+/* Engraved label — cut into the surface rather than printed on it */
+@utility mat-etched {
+  text-shadow:
+    0 1px 0 rgb(var(--mat-light) / calc(var(--mat-hi) * 0.75)),
+    0 -1px 0 rgb(var(--mat-dark) / calc(var(--mat-lo) * 0.28));
+}
+
+/* Status lamp: a real indicator has a lens, a hotspot and a bezel. */
+@utility mat-lamp {
+  position: relative;
+  border-radius: 9999px;
+  box-shadow:
+    inset 0 1px 1px rgb(var(--mat-light) / 0.5),
+    inset 0 -1px 2px rgb(var(--mat-dark) / 0.45),
+    0 0 8px currentColor;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mat-key { transition: none; }
+  .mat-key:active { transform: none; }
+}
+
+
+/* A key that is lit. Needed because mat-key sets background-image, which
+   overrides any bg-* utility — the selected state was silently losing its
+   fill and becoming indistinguishable from the unselected ones. */
+@utility mat-key-lit {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--primary) 88%, white),
+    var(--primary)
+  );
+  border: 1px solid color-mix(in oklch, var(--primary) 70%, black);
+  color: var(--primary-foreground);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.35),
+    inset 0 -1px 2px rgb(0 0 0 / 0.25),
+    0 1px 2px rgb(0 0 0 / 0.4),
+    0 0 14px color-mix(in oklch, var(--primary) 40%, transparent);
+}
+.mat-key-lit:active {
+  box-shadow:
+    inset 0 2px 5px rgb(0 0 0 / 0.35),
+    0 0 10px color-mix(in oklch, var(--primary) 30%, transparent);
+  transform: translateY(1px);
+}

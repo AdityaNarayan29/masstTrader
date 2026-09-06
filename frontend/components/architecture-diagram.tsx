@@ -18,15 +18,16 @@ export function ArchitectureDiagram() {
     <div className="space-y-5">
       {/* Tab switcher */}
       <div className="flex justify-center">
-        <div className="inline-flex gap-1 rounded-lg border border-border bg-surface-2 p-1">
+        <div className="mat-well inline-flex gap-1 rounded-lg p-1">
           {TABS.map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`rounded-md px-4 py-1.5 text-xs font-semibold transition-colors ${
+              aria-pressed={tab === t.key}
+              className={`rounded-md px-4 py-1.5 text-xs font-semibold ${
                 tab === t.key
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-surface-3 hover:text-foreground"
+                  ? "mat-key-lit"
+                  : "mat-key text-muted-foreground hover:text-foreground"
               }`}
             >
               {t.label}
@@ -36,7 +37,7 @@ export function ArchitectureDiagram() {
       </div>
 
       {/* Diagram area */}
-      <div className="overflow-x-auto rounded-xl border border-border bg-surface-1 p-5 md:p-8">
+      <div className="mat-chassis mat-grain overflow-x-auto rounded-xl p-5 md:p-8">
         {tab === "system" && <SystemDiagram />}
         {tab === "agent" && <AgentLoopDiagram />}
         {tab === "risk" && <RiskDiagram />}
@@ -75,11 +76,14 @@ function Box({
   emphasis?: boolean;
 }) {
   const roles = {
-    default: "border-border bg-surface-2 text-foreground",
-    accent: "border-primary/45 bg-primary/10 text-primary",
-    // Dashed = a boundary we don't own. Reads as "external" without a new hue.
-    edge: "border-dashed border-border bg-surface-1 text-muted-foreground",
-    danger: "border-down/40 bg-down/10 text-down",
+    // Bolted to the chassis: a raised plate.
+    default: "mat-plate text-foreground",
+    // Ours, and backlit — the path being showcased.
+    accent: "mat-plate text-primary ring-1 ring-primary/30",
+    // Not ours. Recessed into the chassis behind a dashed boundary, so it
+    // reads as a socket something external plugs into rather than a component.
+    edge: "mat-well border-dashed text-muted-foreground",
+    danger: "mat-plate text-down ring-1 ring-down/30",
   } as const;
 
   return (
@@ -88,7 +92,7 @@ function Box({
         emphasis ? "ring-1 ring-primary/20" : ""
       } ${className}`}
     >
-      <p className="text-[13px] font-semibold leading-tight">{label}</p>
+      <p className="mat-etched text-[13px] font-semibold leading-tight">{label}</p>
       {sub && (
         <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{sub}</p>
       )}
@@ -99,13 +103,13 @@ function Box({
 function Connector({ label }: { label?: string }) {
   return (
     <div className="flex flex-col items-center gap-0.5 py-1.5">
-      <div className="h-4 w-px bg-border" />
+      <div className="h-4 w-px bg-[var(--mat-edge)]" />
       {label && (
         <span className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
           {label}
         </span>
       )}
-      <svg className="size-2.5 text-border" viewBox="0 0 12 12" fill="currentColor">
+      <svg className="size-2.5 text-[var(--mat-edge)]" viewBox="0 0 12 12" fill="currentColor">
         <path d="M6 9L2 5h8L6 9z" />
       </svg>
     </div>
@@ -115,10 +119,10 @@ function Connector({ label }: { label?: string }) {
 function SectionTag({ children }: { children: React.ReactNode; color?: string }) {
   return (
     <div className="mb-3 flex items-center gap-3">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+      <span className="mat-etched text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
         {children}
       </span>
-      <span className="h-px flex-1 bg-border" />
+      <span className="h-px flex-1 bg-[var(--mat-edge)]" />
     </div>
   );
 }
@@ -225,12 +229,12 @@ function AgentLoopDiagram() {
   // different hue per step is decoration that competes with it. Risk stays
   // distinct because a hard limit genuinely is a different kind of node.
   const colorMap = {
-    blue: "bg-primary/70",
-    cyan: "bg-primary/70",
-    purple: "bg-primary/70",
-    emerald: "bg-primary",
-    red: "bg-down",
-    amber: "bg-primary/70",
+    blue: "mat-lamp bg-primary/70 text-primary/70",
+    cyan: "mat-lamp bg-primary/70 text-primary/70",
+    purple: "mat-lamp bg-primary/70 text-primary/70",
+    emerald: "mat-lamp bg-primary text-primary",
+    red: "mat-lamp bg-down text-down",
+    amber: "mat-lamp bg-primary/70 text-primary/70",
   };
 
   const lineColor = {

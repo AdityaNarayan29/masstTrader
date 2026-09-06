@@ -27,13 +27,17 @@ export function Panel({
   return (
     <section
       className={cn(
-        "flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-surface-1",
+        // A raised control plate mounted on the chassis. Depth is carried by
+        // the material utilities (single light source, from above) rather than
+        // by a flat border.
+        "mat-plate mat-grain flex min-h-0 flex-col overflow-hidden rounded-lg",
         className
       )}
     >
       {(title || actions) && (
-        <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border px-3">
-          <h2 className="truncate text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-[var(--mat-edge)] px-3">
+          {/* Engraved into the plate, not printed on it. */}
+          <h2 className="mat-etched truncate text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             {title}
           </h2>
           {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}

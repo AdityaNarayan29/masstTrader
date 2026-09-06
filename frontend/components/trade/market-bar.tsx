@@ -58,7 +58,7 @@ export function MarketBar({
   return (
     <div
       className={cn(
-        "flex h-14 shrink-0 items-center gap-4 border-b border-border bg-surface-2 px-3",
+        "mat-chassis mat-grain flex h-16 shrink-0 items-center gap-4 px-3",
         "overflow-x-auto",
         className
       )}
@@ -72,8 +72,8 @@ export function MarketBar({
         )}
         <span
           className={cn(
-            "size-1.5 rounded-full",
-            connected ? "bg-up" : "bg-muted-foreground/40"
+            "mat-lamp size-2",
+            connected ? "bg-up text-up" : "bg-muted-foreground/30 text-transparent"
           )}
           title={connected ? "Streaming" : "Disconnected"}
         />
@@ -84,16 +84,22 @@ export function MarketBar({
       {/* Price */}
       <div
         className={cn(
-          "shrink-0 rounded px-2 py-1 transition-colors",
+          "mat-screen shrink-0 rounded-md px-3 py-1.5",
           flash === "up" && "tick-up",
           flash === "down" && "tick-down"
         )}
       >
-        <Field label="Last">
-          <span className={cn("price text-lg font-semibold", flash ? dirClass[flash] : "")}>
-            {mid !== null ? fmtPrice(mid, digits) : "—"}
-          </span>
-        </Field>
+        <div className="text-[9px] font-medium uppercase tracking-[0.15em] text-muted-foreground/80">
+          Last
+        </div>
+        <span
+          className={cn(
+            "lcd price text-xl font-semibold leading-tight",
+            flash === "down" && "text-down"
+          )}
+        >
+          {mid !== null ? fmtPrice(mid, digits) : "—"}
+        </span>
       </div>
 
       <Field label="Bid">
@@ -133,7 +139,7 @@ export function MarketBar({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="shrink-0">
-      <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+      <div className="mat-etched text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
       <div className="text-sm font-medium leading-tight">{children}</div>
@@ -142,5 +148,5 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function Divider() {
-  return <div className="h-8 w-px shrink-0 bg-border" />;
+  return <div className="h-9 w-px shrink-0 bg-[var(--mat-edge)]" />;
 }
