@@ -133,6 +133,28 @@ The agent trades as though macro were always benign.
 
 <!-- Newest first. One entry per completed item. -->
 
+### 2026-09-06 - Architecture diagram rebuilt on the design system
+
+Seven hues - emerald, blue, purple, amber, red, cyan, neutral - assigned per box
+with no rule behind them. Colour looked meaningful and wasn't, and none of it
+came from the token set.
+
+There *was* latent meaning buried in it: amber was always an external system,
+emerald always the agent path, red always a rejection. Formalised into four
+semantic roles - `default` (ours), `accent` (the V2 agent path), `edge`
+(outside our control - dashed border rather than a new hue), `danger` (hard
+limit or rejection).
+
+- 7-node agent loop had one hue per step. The step number already carries the
+  sequence, so all nodes now share a treatment; only Risk stays distinct,
+  because a hard limit genuinely is a different kind of node. The legend
+  dropped from 6 entries to 3 that mean something.
+- Tab switcher and container were hard-coded `white/10` and `neutral-950`,
+  ignoring the theme. Now tokens.
+- External systems are consistent: MT5 Terminal, Binance/Bybit, Groq Cloud,
+  MT5 Connector and CCXT Feed all dashed, none carrying a primary ring.
+- Raw colour classes in the file: 108 -> 0.
+
 ### 2026-09-06 - Landing page rebuilt around the product
 
 **The core miss: no picture of the product.** A trading platform landing page

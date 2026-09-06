@@ -18,15 +18,15 @@ export function ArchitectureDiagram() {
     <div className="space-y-5">
       {/* Tab switcher */}
       <div className="flex justify-center">
-        <div className="inline-flex rounded-xl border border-white/10 bg-white/5 dark:bg-white/[0.03] p-1 gap-1">
+        <div className="inline-flex gap-1 rounded-lg border border-border bg-surface-2 p-1">
           {TABS.map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`px-5 py-2 rounded-lg text-xs font-semibold transition-all ${
+              className={`rounded-md px-4 py-1.5 text-xs font-semibold transition-colors ${
                 tab === t.key
-                  ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/25"
-                  : "text-neutral-400 hover:text-white hover:bg-white/5"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-surface-3 hover:text-foreground"
               }`}
             >
               {t.label}
@@ -36,7 +36,7 @@ export function ArchitectureDiagram() {
       </div>
 
       {/* Diagram area */}
-      <div className="rounded-2xl border border-white/[0.08] dark:border-white/[0.06] bg-neutral-50 dark:bg-neutral-950/80 p-5 md:p-8 overflow-x-auto">
+      <div className="overflow-x-auto rounded-xl border border-border bg-surface-1 p-5 md:p-8">
         {tab === "system" && <SystemDiagram />}
         {tab === "agent" && <AgentLoopDiagram />}
         {tab === "risk" && <RiskDiagram />}
@@ -47,53 +47,50 @@ export function ArchitectureDiagram() {
 
 /* ── Box component ──────────────────────────────────────────── */
 
+/** A node in the diagram.
+ *
+ *  The previous version had seven hues — emerald, blue, purple, amber, red,
+ *  cyan, neutral — chosen per box with no rule behind them, so colour carried
+ *  no information and clashed with the app's palette.
+ *
+ *  There was, however, latent meaning: amber was always an external system,
+ *  emerald was always the agent path, red was always a rejection. That is
+ *  formalised here into four roles, so hue means something and the diagram
+ *  uses the same tokens as the rest of the product.
+ */
 function Box({
   label,
   sub,
-  color = "neutral",
+  role = "default",
   className = "",
-  glow = false,
+  emphasis = false,
 }: {
   label: string;
   sub?: string;
-  color?: "emerald" | "blue" | "purple" | "amber" | "red" | "neutral" | "cyan";
+  /** default: our own component · accent: the V2 agent path we're showcasing
+   *  edge: systems outside our control (broker, exchange, cloud LLM)
+   *  danger: a rejection or a hard risk limit */
+  role?: "default" | "accent" | "edge" | "danger";
   className?: string;
-  glow?: boolean;
+  emphasis?: boolean;
 }) {
-  const styles = {
-    emerald:
-      "border-emerald-500/40 bg-emerald-500/10 dark:bg-emerald-500/[0.08] text-emerald-600 dark:text-emerald-400",
-    blue:
-      "border-blue-500/40 bg-blue-500/10 dark:bg-blue-500/[0.08] text-blue-600 dark:text-blue-400",
-    purple:
-      "border-purple-500/40 bg-purple-500/10 dark:bg-purple-500/[0.08] text-purple-600 dark:text-purple-400",
-    amber:
-      "border-amber-500/40 bg-amber-500/10 dark:bg-amber-500/[0.08] text-amber-600 dark:text-amber-400",
-    red:
-      "border-red-500/40 bg-red-500/10 dark:bg-red-500/[0.08] text-red-600 dark:text-red-400",
-    cyan:
-      "border-cyan-500/40 bg-cyan-500/10 dark:bg-cyan-500/[0.08] text-cyan-600 dark:text-cyan-400",
-    neutral:
-      "border-neutral-300 dark:border-white/10 bg-neutral-100 dark:bg-white/[0.04] text-neutral-700 dark:text-neutral-300",
-  };
-
-  const glowStyles: Record<string, string> = {
-    emerald: "shadow-emerald-500/20",
-    blue: "shadow-blue-500/20",
-    purple: "shadow-purple-500/20",
-    amber: "shadow-amber-500/20",
-    red: "shadow-red-500/20",
-    cyan: "shadow-cyan-500/20",
-    neutral: "",
-  };
+  const roles = {
+    default: "border-border bg-surface-2 text-foreground",
+    accent: "border-primary/45 bg-primary/10 text-primary",
+    // Dashed = a boundary we don't own. Reads as "external" without a new hue.
+    edge: "border-dashed border-border bg-surface-1 text-muted-foreground",
+    danger: "border-down/40 bg-down/10 text-down",
+  } as const;
 
   return (
     <div
-      className={`rounded-xl border px-4 py-3 text-center transition-all ${styles[color]} ${glow ? `shadow-lg ${glowStyles[color]}` : ""} ${className}`}
+      className={`rounded-lg border px-3 py-2.5 text-center transition-colors ${roles[role]} ${
+        emphasis ? "ring-1 ring-primary/20" : ""
+      } ${className}`}
     >
-      <p className="text-sm font-bold leading-tight">{label}</p>
+      <p className="text-[13px] font-semibold leading-tight">{label}</p>
       {sub && (
-        <p className="text-[11px] opacity-60 mt-0.5 leading-tight font-medium">{sub}</p>
+        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{sub}</p>
       )}
     </div>
   );
@@ -101,25 +98,27 @@ function Box({
 
 function Connector({ label }: { label?: string }) {
   return (
-    <div className="flex flex-col items-center gap-0.5 py-1">
-      <div className="w-px h-4 bg-gradient-to-b from-emerald-500/40 to-emerald-500/10" />
+    <div className="flex flex-col items-center gap-0.5 py-1.5">
+      <div className="h-4 w-px bg-border" />
       {label && (
-        <span className="text-[9px] text-emerald-500/50 font-medium">{label}</span>
+        <span className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
       )}
-      <svg className="w-3 h-3 text-emerald-500/40" viewBox="0 0 12 12" fill="currentColor">
+      <svg className="size-2.5 text-border" viewBox="0 0 12 12" fill="currentColor">
         <path d="M6 9L2 5h8L6 9z" />
       </svg>
     </div>
   );
 }
 
-function SectionTag({ children, color = "emerald" }: { children: React.ReactNode; color?: string }) {
-  const c = color === "red" ? "text-red-400/70 border-red-500/20" : color === "amber" ? "text-amber-400/70 border-amber-500/20" : "text-emerald-400/70 border-emerald-500/20";
+function SectionTag({ children }: { children: React.ReactNode; color?: string }) {
   return (
-    <div className="flex justify-center mb-3">
-      <span className={`text-[10px] uppercase tracking-[0.2em] font-bold border-b pb-1 ${c}`}>
+    <div className="mb-3 flex items-center gap-3">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
         {children}
       </span>
+      <span className="h-px flex-1 bg-border" />
     </div>
   );
 }
@@ -131,35 +130,35 @@ function SystemDiagram() {
     <div className="space-y-1 min-w-[340px]">
       <SectionTag>Full System Architecture</SectionTag>
 
-      <Box label="Frontend" sub="Next.js 16 + TypeScript + Vercel" color="blue" glow />
+      <Box label="Frontend" sub="Next.js 16 + TypeScript + Vercel" role="default" emphasis />
       <Connector />
 
       {/* Backend container */}
-      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.02] dark:bg-emerald-500/[0.015] p-5 space-y-1">
-        <p className="text-[10px] uppercase tracking-[0.15em] text-emerald-500/60 font-bold text-center mb-3">
+      <div className="rounded-2xl border border-border bg-surface-2 dark:bg-surface-25] p-5 space-y-1">
+        <p className="text-[10px] uppercase tracking-[0.15em] text-primary/60 font-bold text-center mb-3">
           FastAPI Backend &middot; Azure Windows VM &middot; :8008
         </p>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          <Box label="V1 API" sub="Strategy, Backtest, Algo" color="neutral" />
-          <Box label="V2 Agent API" sub="Start, Stop, Status" color="emerald" glow />
-          <Box label="AI Service" sub="Groq / Llama 3.3 70B" color="purple" glow />
-          <Box label="ML Layer" sub="XGBoost + LSTM" color="purple" />
+          <Box label="V1 API" sub="Strategy, Backtest, Algo" role="default" />
+          <Box label="V2 Agent API" sub="Start, Stop, Status" role="accent" emphasis />
+          <Box label="AI Service" sub="Groq / Llama 3.3 70B" role="default" emphasis />
+          <Box label="ML Layer" sub="XGBoost + LSTM" role="default" />
         </div>
 
         <Connector />
 
         <div className="grid grid-cols-3 gap-2">
-          <Box label="MT5 Connector" sub="Native IPC" color="amber" glow />
-          <Box label="CCXT Feed" sub="Binance + Bybit" color="amber" glow />
-          <Box label="Indicators" sub="20+ via ta lib" color="neutral" />
+          <Box label="MT5 Connector" sub="Native IPC" role="edge" />
+          <Box label="CCXT Feed" sub="Binance + Bybit" role="edge" />
+          <Box label="Indicators" sub="20+ via ta lib" role="default" />
         </div>
 
         <Connector />
 
         {/* Agent box */}
-        <div className="rounded-xl border-2 border-emerald-500/30 bg-emerald-500/[0.04] dark:bg-emerald-500/[0.03] p-4">
-          <p className="text-[10px] uppercase tracking-[0.15em] text-emerald-400 font-bold text-center mb-3">
+        <div className="rounded-xl border-2 border-border bg-surface-2 dark:bg-surface-2 p-4">
+          <p className="text-[10px] uppercase tracking-[0.15em] text-primary font-bold text-center mb-3">
             V2 Autonomous Agent
           </p>
           <div className="flex flex-wrap justify-center gap-2">
@@ -175,12 +174,12 @@ function SystemDiagram() {
               <span
                 key={node.n}
                 className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold border
-                  ${node.c === "blue" ? "border-blue-500/30 bg-blue-500/10 text-blue-400" : ""}
-                  ${node.c === "cyan" ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-400" : ""}
-                  ${node.c === "purple" ? "border-purple-500/30 bg-purple-500/10 text-purple-400" : ""}
-                  ${node.c === "emerald" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : ""}
-                  ${node.c === "red" ? "border-red-500/30 bg-red-500/10 text-red-400" : ""}
-                  ${node.c === "amber" ? "border-amber-500/30 bg-amber-500/10 text-amber-400" : ""}
+                  ${node.c === "blue" ? "border-border bg-surface-2 text-muted-foreground" : ""}
+                  ${node.c === "cyan" ? "border-border bg-surface-2 text-muted-foreground" : ""}
+                  ${node.c === "purple" ? "border-border bg-surface-2 text-muted-foreground" : ""}
+                  ${node.c === "emerald" ? "border-border bg-surface-2 text-primary" : ""}
+                  ${node.c === "red" ? "border-border bg-down/10 text-down" : ""}
+                  ${node.c === "amber" ? "border-border bg-surface-2 text-muted-foreground" : ""}
                 `}
               >
                 <span className="opacity-50">{i + 1}.</span> {node.n}
@@ -194,10 +193,10 @@ function SystemDiagram() {
 
       {/* External services */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <Box label="MT5 Terminal" sub="Exness (Gold, Forex)" color="amber" glow />
-        <Box label="Binance / Bybit" sub="BTC/USDT" color="amber" glow />
-        <Box label="Groq Cloud" sub="LLM Inference" color="purple" glow />
-        <Box label="SQLite" sub="Trades, Cycles, Stats" color="neutral" />
+        <Box label="MT5 Terminal" sub="Exness (Gold, Forex)" role="edge" />
+        <Box label="Binance / Bybit" sub="BTC/USDT" role="edge" />
+        <Box label="Groq Cloud" sub="LLM Inference" role="edge" />
+        <Box label="SQLite" sub="Trades, Cycles, Stats" role="default" />
       </div>
     </div>
   );
@@ -222,22 +221,25 @@ function AgentLoopDiagram() {
     { num: 7, label: "Monitor", desc: "Partial exits, trailing SL, regime exit", color: "amber", output: "Close / modify actions" },
   ];
 
+  // One treatment for every node. The step number carries the sequence; a
+  // different hue per step is decoration that competes with it. Risk stays
+  // distinct because a hard limit genuinely is a different kind of node.
   const colorMap = {
-    blue: "bg-blue-500 shadow-blue-500/30",
-    cyan: "bg-cyan-500 shadow-cyan-500/30",
-    purple: "bg-purple-500 shadow-purple-500/30",
-    emerald: "bg-emerald-500 shadow-emerald-500/30",
-    red: "bg-red-500 shadow-red-500/30",
-    amber: "bg-amber-500 shadow-amber-500/30",
+    blue: "bg-primary/70",
+    cyan: "bg-primary/70",
+    purple: "bg-primary/70",
+    emerald: "bg-primary",
+    red: "bg-down",
+    amber: "bg-primary/70",
   };
 
   const lineColor = {
-    blue: "border-blue-500/20",
-    cyan: "border-cyan-500/20",
-    purple: "border-purple-500/20",
-    emerald: "border-emerald-500/20",
-    red: "border-red-500/20",
-    amber: "border-amber-500/20",
+    blue: "border-border",
+    cyan: "border-border",
+    purple: "border-border",
+    emerald: "border-border",
+    red: "border-border",
+    amber: "border-border",
   };
 
   return (
@@ -261,18 +263,18 @@ function AgentLoopDiagram() {
             <div className="flex-1 pb-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-sm font-bold text-neutral-800 dark:text-white leading-tight">{node.label}</p>
-                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">{node.desc}</p>
+                  <p className="text-sm font-bold text-foreground leading-tight">{node.label}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">{node.desc}</p>
                 </div>
                 <Badge
                   variant="outline"
                   className={`text-[10px] flex-shrink-0 hidden md:inline-flex font-mono
-                    ${node.color === "blue" ? "border-blue-500/30 text-blue-500 bg-blue-500/5" : ""}
-                    ${node.color === "cyan" ? "border-cyan-500/30 text-cyan-500 bg-cyan-500/5" : ""}
-                    ${node.color === "purple" ? "border-purple-500/30 text-purple-500 bg-purple-500/5" : ""}
-                    ${node.color === "emerald" ? "border-emerald-500/30 text-emerald-500 bg-emerald-500/5" : ""}
-                    ${node.color === "red" ? "border-red-500/30 text-red-500 bg-red-500/5" : ""}
-                    ${node.color === "amber" ? "border-amber-500/30 text-amber-500 bg-amber-500/5" : ""}
+                    ${node.color === "blue" ? "border-border text-muted-foreground bg-surface-2" : ""}
+                    ${node.color === "cyan" ? "border-border text-muted-foreground bg-surface-2" : ""}
+                    ${node.color === "purple" ? "border-border text-muted-foreground bg-surface-2" : ""}
+                    ${node.color === "emerald" ? "border-border text-primary bg-surface-2" : ""}
+                    ${node.color === "red" ? "border-border text-down bg-down/5" : ""}
+                    ${node.color === "amber" ? "border-border text-muted-foreground bg-surface-2" : ""}
                   `}
                 >
                   {node.output}
@@ -286,26 +288,23 @@ function AgentLoopDiagram() {
       {/* Loop back */}
       <div className="flex items-center gap-4 pt-1">
         <div className="w-8 flex justify-center">
-          <svg className="w-5 h-5 text-emerald-500 animate-spin" style={{ animationDuration: "3s" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 text-primary animate-spin" style={{ animationDuration: "3s" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
         </div>
-        <p className="text-xs text-emerald-500 font-bold">Loop back to Scanner</p>
+        <p className="text-xs text-primary font-bold">Loop back to Scanner</p>
       </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap justify-center gap-4 pt-6 mt-4 border-t border-white/[0.06]">
+      <div className="flex flex-wrap justify-center gap-4 pt-6 mt-4 border-t border-border">
         {[
-          { label: "Data", color: "bg-blue-500" },
-          { label: "Context", color: "bg-cyan-500" },
-          { label: "AI", color: "bg-purple-500" },
-          { label: "Brain", color: "bg-emerald-500" },
-          { label: "Risk", color: "bg-red-500" },
-          { label: "Execution", color: "bg-amber-500" },
+          { label: "Pipeline stage", color: "bg-primary/70" },
+          { label: "Signal generation", color: "bg-primary" },
+          { label: "Hard risk limit", color: "bg-down" },
         ].map((l) => (
           <div key={l.label} className="flex items-center gap-1.5">
             <div className={`w-2.5 h-2.5 rounded-full ${l.color}`} />
-            <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">{l.label}</span>
+            <span className="text-[11px] text-muted-foreground font-medium">{l.label}</span>
           </div>
         ))}
       </div>
@@ -336,11 +335,11 @@ function RiskDiagram() {
 
   return (
     <div className="space-y-5 min-w-[340px]">
-      <SectionTag color="red">Risk Management &middot; Code-Level &middot; LLM Cannot Override</SectionTag>
+      <SectionTag>Risk Management &middot; Code-Level &middot; LLM Cannot Override</SectionTag>
 
       {/* Kill switches */}
       <div className="space-y-2">
-        <p className="text-[10px] uppercase tracking-[0.15em] text-red-400 font-bold flex items-center gap-2">
+        <p className="text-[10px] uppercase tracking-[0.15em] text-down font-bold flex items-center gap-2">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
           </svg>
@@ -351,16 +350,16 @@ function RiskDiagram() {
             key={g.rule}
             className={`flex items-center justify-between rounded-lg border px-4 py-2.5 text-xs font-medium ${
               g.fatal
-                ? "border-red-500/30 bg-red-500/[0.06]"
-                : "border-white/[0.08] bg-white/[0.02]"
+                ? "border-border bg-down/[0.06]"
+                : "border-border bg-surface-2"
             }`}
           >
-            <span className="text-neutral-700 dark:text-neutral-300">{g.rule}</span>
+            <span className="text-foreground dark:text-muted-foreground">{g.rule}</span>
             <span
               className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold ${
                 g.fatal
-                  ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                  : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                  ? "bg-down/15 text-down border border-down/30"
+                  : "bg-warn/15 text-warn border border-warn/30"
               }`}
             >
               {g.action}
@@ -373,7 +372,7 @@ function RiskDiagram() {
 
       {/* Position sizing */}
       <div className="space-y-3">
-        <p className="text-[10px] uppercase tracking-[0.15em] text-emerald-400 font-bold flex items-center gap-2">
+        <p className="text-[10px] uppercase tracking-[0.15em] text-primary font-bold flex items-center gap-2">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
           </svg>
@@ -381,13 +380,13 @@ function RiskDiagram() {
         </p>
 
         <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-xl border-2 border-emerald-500/30 bg-emerald-500/[0.06] p-4 text-center">
-            <p className="text-2xl font-black text-emerald-400">0.75%</p>
-            <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-semibold mt-1">Max risk / trade (Gold)</p>
+          <div className="rounded-xl border-2 border-border bg-surface-2 p-4 text-center">
+            <p className="text-2xl font-black text-primary">0.75%</p>
+            <p className="text-[11px] text-muted-foreground font-semibold mt-1">Max risk / trade (Gold)</p>
           </div>
-          <div className="rounded-xl border-2 border-emerald-500/30 bg-emerald-500/[0.06] p-4 text-center">
-            <p className="text-2xl font-black text-emerald-400">0.50%</p>
-            <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-semibold mt-1">Max risk / trade (BTC)</p>
+          <div className="rounded-xl border-2 border-border bg-surface-2 p-4 text-center">
+            <p className="text-2xl font-black text-primary">0.50%</p>
+            <p className="text-[11px] text-muted-foreground font-semibold mt-1">Max risk / trade (BTC)</p>
           </div>
         </div>
 
@@ -395,10 +394,10 @@ function RiskDiagram() {
           {adjustments.map((a) => (
             <div
               key={a.condition}
-              className="flex items-center justify-between rounded-lg border border-white/[0.08] bg-white/[0.02] px-4 py-2.5 text-xs"
+              className="flex items-center justify-between rounded-lg border border-border bg-surface-2 px-4 py-2.5 text-xs"
             >
-              <span className="text-neutral-700 dark:text-neutral-300 font-medium">{a.condition}</span>
-              <span className={`font-mono font-bold text-[11px] ${a.severity > 1 ? "text-red-400" : "text-amber-400"}`}>
+              <span className="text-foreground dark:text-muted-foreground font-medium">{a.condition}</span>
+              <span className={`font-mono font-bold text-[11px] ${a.severity > 1 ? "text-down" : "text-muted-foreground"}`}>
                 {a.effect}
               </span>
             </div>
@@ -408,7 +407,7 @@ function RiskDiagram() {
 
       <Connector />
 
-      <Box label="APPROVED ORDER" sub="symbol, direction, volume, entry, SL, TP, risk%" color="emerald" glow />
+      <Box label="APPROVED ORDER" sub="symbol, direction, volume, entry, SL, TP, risk%" role="accent" emphasis />
     </div>
   );
 }

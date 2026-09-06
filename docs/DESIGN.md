@@ -92,6 +92,25 @@ Any number a user compares vertically gets this. Prose does not.
 
 ---
 
+## 4b. Diagrams
+
+Diagram nodes use **four semantic roles**, not a palette of hues:
+
+| Role | Means | Treatment |
+| --- | --- | --- |
+| `default` | a component we own | surface-2, solid border |
+| `accent` | the path being showcased (the V2 agent) | primary tint |
+| `edge` | a system outside our control - broker, exchange, cloud LLM | **dashed** border, muted |
+| `danger` | a rejection or a hard risk limit | down tint |
+
+The rule: **hue must carry information.** The original diagram had seven hues
+assigned per box with no rule behind them - blue frontend, purple ML, amber
+connector, cyan context - so colour looked meaningful and wasn't. Dashed-for-
+external does the same job as a hue without spending one.
+
+Sequenced nodes (the 7-node agent loop) all share one treatment. The step number
+already carries the order; a different hue per step competes with it.
+
 ## 5. Layout
 
 Routes in `TERMINAL_ROUTES` (`/live`, `/algo`, `/backtest`) get a flush,
