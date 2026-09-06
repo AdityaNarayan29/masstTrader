@@ -157,6 +157,31 @@ display genuinely is the only lit element.
 Use `mat-key-lit` for the selected state - the first version of the tab switcher
 lost its active fill this way and every tab looked unselected.
 
+## 4d. Persisted UI state
+
+Anything remembered in `localStorage` (last symbol, timeframe, selected
+strategy) must use `hooks/use-persisted-state.ts`.
+
+**Do not** read `localStorage` inside `useState`:
+
+```tsx
+// WRONG - looks SSR-safe, is not
+useState(() => {
+  if (typeof window !== "undefined") return localStorage.getItem(key) ?? init;
+  return init;
+});
+```
+
+The server renders `init`, but the client's **first** render returns the stored
+value, and hydration compares exactly those two trees. The `typeof window` guard
+does not help: the mismatch happens on the client, after the guard has passed.
+This shipped on `/algo` and produced a hydration error whenever a symbol had
+been used before.
+
+The stored value has to arrive **after** hydration - render `init`, restore in
+an effect. `usePersistedState` does that, and swallows the exception that
+private-browsing modes throw on `localStorage` access.
+
 ## 5. Layout
 
 Routes in `TERMINAL_ROUTES` (`/live`, `/algo`, `/backtest`) get a flush,

@@ -219,7 +219,7 @@ cd frontend
 pnpm install
 
 # Set environment variables
-echo "NEXT_PUBLIC_API_URL=http://13.48.148.223:8008" > .env.local
+echo "NEXT_PUBLIC_API_URL=http://51.107.189.223:8008" > .env.local  # Azure VM
 
 # Run
 pnpm dev

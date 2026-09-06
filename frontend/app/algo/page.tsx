@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { api } from "@/lib/api";
 import { useLiveStream } from "@/hooks/use-live-stream";
+import { usePersistedState } from "@/hooks/use-persisted-state";
 import { fmtMoney, Signed } from "@/components/trade/num";
 import { LiveChart, type TradeMarkerData, type PositionOverlay } from "@/components/live-chart";
 import { Loader2 } from "lucide-react";
@@ -81,33 +82,13 @@ export default function AlgoPage() {
   // Strategy & algo config
   type StrategyItem = Awaited<ReturnType<typeof api.strategies.list>>[number];
   const [strategies, setStrategies] = useState<StrategyItem[]>([]);
-  const [strategyId, _setStrategyId] = useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("algo_strategyId") || "__current__";
-    return "__current__";
-  });
-  const [symbol, _setSymbol] = useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("algo_symbol") || "";
-    return "";
-  });
-  const [timeframe, _setTimeframe] = useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("algo_timeframe") || "5m";
-    return "5m";
-  });
+  // Persisted selections. These MUST restore after hydration rather than during
+  // it — reading localStorage inside useState makes the client's first render
+  // disagree with the server's, which is a hydration mismatch.
+  const [strategyId, setStrategyId] = usePersistedState("algo_strategyId", "__current__");
+  const [symbol, setSymbol] = usePersistedState("algo_symbol", "");
+  const [timeframe, setTimeframe] = usePersistedState("algo_timeframe", "5m");
   const [volume, setVolume] = useState(0.01);
-
-  // Wrap setters to persist to localStorage
-  const setStrategyId = (id: string) => {
-    _setStrategyId(id);
-    if (typeof window !== "undefined") localStorage.setItem("algo_strategyId", id);
-  };
-  const setSymbol = (s: string) => {
-    _setSymbol(s);
-    if (typeof window !== "undefined") localStorage.setItem("algo_symbol", s);
-  };
-  const setTimeframe = (tf: string) => {
-    _setTimeframe(tf);
-    if (typeof window !== "undefined") localStorage.setItem("algo_timeframe", tf);
-  };
 
   // Full strategy (with all rules) — fetched when strategy is selected
   const [fullStrategy, setFullStrategy] = useState<FullStrategy | null>(null);
