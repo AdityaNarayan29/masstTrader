@@ -23,7 +23,7 @@ Write-Host ""
 # Load existing .env values if file exists
 $existing = @{}
 if (Test-Path $ENV_FILE) {
-    Write-Host "Found existing .env — current values will be shown as defaults." -ForegroundColor Yellow
+    Write-Host "Found existing .env - current values will be shown as defaults." -ForegroundColor Yellow
     Get-Content $ENV_FILE | ForEach-Object {
         if ($_ -match "^([^#=]+)=(.*)$") {
             $existing[$Matches[1].Trim()] = $Matches[2].Trim()
@@ -76,9 +76,25 @@ Write-Host ""
 Write-Host "-- AI Provider --" -ForegroundColor Yellow
 $aiProvider = Prompt-Value -Name "AI_PROVIDER" -Description "groq, google, anthropic, openai" -Default "groq" -Required $true
 $groqKey = Prompt-Value -Name "GROQ_API_KEY" -Description "Groq API key" -IsSecret $true -Required $false
+$groqModel = Prompt-Value -Name "GROQ_MODEL" -Description "Groq model id (llama-3.3-70b-versatile is decommissioned)" -Default "openai/gpt-oss-120b" -Required $false
 $googleKey = Prompt-Value -Name "GOOGLE_API_KEY" -Description "Google Gemini key" -IsSecret $true -Required $false
 $anthropicKey = Prompt-Value -Name "ANTHROPIC_API_KEY" -Description "Anthropic key" -IsSecret $true -Required $false
 $openaiKey = Prompt-Value -Name "OPENAI_API_KEY" -Description "OpenAI key" -IsSecret $true -Required $false
+
+Write-Host ""
+Write-Host "-- V2 Autonomous Agent --" -ForegroundColor Yellow
+$agentEnv = Prompt-Value -Name "AGENT_ENV" -Description "demo (paper) or live (REAL MONEY)" -Default "demo" -Required $true
+$tfMode = Prompt-Value -Name "TF_MODE" -Description "scalping, intraday, swing, daily" -Default "intraday" -Required $false
+$watchlist = Prompt-Value -Name "WATCHLIST" -Description "comma-separated symbols" -Default "XAUUSDm,BTCUSDm" -Required $false
+$loopInterval = Prompt-Value -Name "LOOP_INTERVAL_SECONDS" -Description "seconds between agent cycles" -Default "300" -Required $false
+$cryptoTestnet = Prompt-Value -Name "CRYPTO_TESTNET" -Description "true or false" -Default "true" -Required $false
+
+if ($agentEnv -eq "live") {
+    Write-Host ""
+    Write-Host "  WARNING: AGENT_ENV=live places REAL orders on your broker account." -ForegroundColor Red
+    $confirm = Read-Host "  Type LIVE to confirm, anything else reverts to demo"
+    if ($confirm -ne "LIVE") { $agentEnv = "demo"; Write-Host "  Reverted to demo." -ForegroundColor Yellow }
+}
 
 Write-Host ""
 Write-Host "-- Security --" -ForegroundColor Yellow
@@ -99,6 +115,7 @@ MT5_PATH=$mt5Path
 # AI Provider
 AI_PROVIDER=$aiProvider
 GROQ_API_KEY=$groqKey
+GROQ_MODEL=$groqModel
 GOOGLE_API_KEY=$googleKey
 ANTHROPIC_API_KEY=$anthropicKey
 OPENAI_API_KEY=$openaiKey
@@ -106,6 +123,13 @@ OPENAI_API_KEY=$openaiKey
 # Security
 API_KEY=$apiKey
 CORS_ORIGINS=$corsOrigins
+
+# V2 Autonomous Agent
+AGENT_ENV=$agentEnv
+TF_MODE=$tfMode
+WATCHLIST=$watchlist
+LOOP_INTERVAL_SECONDS=$loopInterval
+CRYPTO_TESTNET=$cryptoTestnet
 "@
 
 Set-Content -Path $ENV_FILE -Value $envContent -Encoding UTF8

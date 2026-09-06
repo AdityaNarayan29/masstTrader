@@ -1,20 +1,16 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useLiveStream } from "@/hooks/use-live-stream";
 import { LiveChart } from "@/components/live-chart";
 import { Loader2 } from "lucide-react";
-import { SymbolCombobox } from "@/components/symbol-combobox";
+import { MarketBar } from "@/components/trade/market-bar";
+import { Panel, Empty } from "@/components/trade/panel";
+import { Stat } from "@/components/trade/stat";
+import { fmtMoney, fmtPrice, Signed, dirClass, dir } from "@/components/trade/num";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -22,14 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 
 interface HistoricalCandle {
   datetime: string;
@@ -46,330 +34,284 @@ interface HistoricalCandle {
   RSI_14?: number;
 }
 
+const TIMEFRAMES = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"];
+
 export default function LivePage() {
   const [symbol, setSymbol] = useState("EURUSDm");
-  const [timeframe, setTimeframe] = useState("1m");
+  const [timeframe, setTimeframe] = useState("15m");
   const [historicalCandles, setHistoricalCandles] = useState<HistoricalCandle[]>([]);
   const [loadingChart, setLoadingChart] = useState(false);
-  const [liveStarted, setLiveStarted] = useState(false);
+  // True when the chart is showing generated sample data because MT5 is down.
+  // Labelled prominently — a chart you might mistake for the real market is
+  // worse than no chart at all.
+  const [isSample, setIsSample] = useState(false);
+  const [dataError, setDataError] = useState<string | null>(null);
 
   const stream = useLiveStream(symbol, timeframe);
-  const liveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [polledPrice, setPolledPrice] = useState<{ bid: number; ask: number; symbol: string; market_open?: boolean } | null>(null);
-  const [polledAccount, setPolledAccount] = useState<typeof stream.account>(null);
+
   const [polledPositions, setPolledPositions] = useState<typeof stream.positions>([]);
+  const liveInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // Merge SSE + HTTP data
-  const price = stream.price ?? (polledPrice ? { ...polledPrice, last: 0, volume: 0, time: "" } : null);
-  const account = stream.account ?? polledAccount;
-  const positions = stream.positions.length > 0 ? stream.positions : polledPositions;
+  const positions = stream.positions?.length ? stream.positions : polledPositions;
+  const account = stream.account;
 
-  // RSI data for the subplot
-  const rsiData = useMemo(() => {
-    return historicalCandles
-      .filter((c) => c.RSI_14 != null && !isNaN(Number(c.RSI_14)))
-      .map((c) => ({
-        time: Math.floor(new Date(c.datetime).getTime() / 1000),
-        value: Number(c.RSI_14),
-      }));
-  }, [historicalCandles]);
-
-  const latestRSI = stream.candle?.indicators?.RSI_14 ?? null;
-
-  // HTTP poll fallback when SSE is not connected
-  useEffect(() => {
-    if (stream.status === "connected" || !liveStarted) {
-      if (liveInterval.current) { clearInterval(liveInterval.current); liveInterval.current = null; }
-      return;
-    }
-    const poll = () => {
-      api.mt5.price(symbol).then(setPolledPrice).catch((e: Error) => console.error(e.message));
-      api.mt5.account().then(setPolledAccount).catch((e: Error) => console.error(e.message));
-      api.mt5.positions().then(setPolledPositions).catch((e: Error) => console.error(e.message));
-    };
-    poll();
-    liveInterval.current = setInterval(poll, 1000);
-    return () => { if (liveInterval.current) clearInterval(liveInterval.current); };
-  }, [stream.status, liveStarted, symbol]);
-
-  const handleStart = async () => {
+  // Load chart history whenever the instrument or timeframe changes.
+  // The old page waited for a "Watch Market" click, which left a trading
+  // screen empty on arrival — the one thing a market view must never be.
+  const loadChart = useCallback(async () => {
     setLoadingChart(true);
-    setLiveStarted(true);
+    setDataError(null);
     try {
-      const data = await api.data.fetch(symbol, timeframe, 200);
+      const data = await api.data.fetch(symbol, timeframe, 300);
       setHistoricalCandles(data.candles as unknown as HistoricalCandle[]);
-      stream.connect();
-    } catch {
-      stream.connect();
+      setIsSample(false);
+    } catch (e) {
+      // MT5 down: fall back to generated data so the layout, indicators and
+      // interactions stay explorable instead of the screen going dead.
+      setDataError(e instanceof Error ? e.message : "Failed to load market data");
+      try {
+        const demo = await api.data.demo();
+        setHistoricalCandles(demo.candles as unknown as HistoricalCandle[]);
+        setIsSample(true);
+      } catch {
+        setHistoricalCandles([]);
+        setIsSample(false);
+      }
     } finally {
       setLoadingChart(false);
     }
-  };
+  }, [symbol, timeframe]);
 
-  const handleStop = () => {
-    stream.disconnect();
-    setLiveStarted(false);
-  };
+  useEffect(() => {
+    loadChart();
+    stream.connect();
+    return () => stream.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, timeframe]);
 
-  const isBigPrice = symbol.includes("BTC") || symbol.includes("XAU") || (price && price.bid > 100);
-  const spread = price
-    ? isBigPrice
-      ? (price.ask - price.bid).toFixed(2)
-      : ((price.ask - price.bid) * 100000).toFixed(1)
-    : "---";
-  const spreadUnit = isBigPrice ? "USD" : "points";
-
-  const statusColor =
-    stream.status === "connected"
-      ? "default"
-      : liveStarted
-        ? ("secondary" as const)
-        : stream.status === "error"
-          ? "destructive"
-          : ("secondary" as const);
-
-  const statusLabel =
-    stream.status === "connected"
-      ? "LIVE (SSE)"
-      : liveStarted
-        ? "LIVE (HTTP)"
-        : stream.status === "connecting"
-          ? "CONNECTING..."
-          : "OFFLINE";
+  // HTTP fallback for positions when SSE is unavailable.
+  useEffect(() => {
+    const poll = () => {
+      api.mt5.positions().then(setPolledPositions).catch(() => {});
+    };
+    poll();
+    liveInterval.current = setInterval(poll, 3000);
+    return () => {
+      if (liveInterval.current) clearInterval(liveInterval.current);
+    };
+  }, [symbol]);
 
   const indicators = stream.candle?.indicators ?? null;
+  const digits = useMemo(
+    () =>
+      symbol.toUpperCase().includes("JPY") ? 3
+        : symbol.toUpperCase().includes("XAU") ? 2
+        : symbol.toUpperCase().includes("BTC") ? 1
+        : 5,
+    [symbol]
+  );
+
+  const totalPnl = positions.reduce((a, p) => a + (p.profit || 0), 0);
 
   return (
-    <div className="max-w-5xl space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Market Watch</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Real-time market data, charts, and positions
-          </p>
+    <div className="flex h-full min-h-0 flex-col">
+      <MarketBar symbol={symbol} onSymbolChange={setSymbol} />
+
+      {isSample && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-warn/30 bg-warn/10 px-3 py-1.5 text-xs">
+          <span className="rounded bg-warn px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-background">
+            Sample data
+          </span>
+          <span className="text-muted-foreground">
+            {dataError ?? "MT5 is not connected"} — showing generated candles so the
+            interface stays usable. Prices are not real.
+          </span>
         </div>
-        <Badge variant={statusColor} className="text-xs">
-          {statusLabel}
-        </Badge>
-      </div>
-
-      {/* Market Closed Banner */}
-      {price && price.market_open === false && (
-        <Card className="border-amber-500/50 bg-amber-500/10">
-          <CardContent className="py-3 text-sm text-amber-500 font-medium text-center">
-            Market is closed — prices shown are from the last trading session
-          </CardContent>
-        </Card>
       )}
 
-      {/* Error */}
-      {stream.error && (
-        <Card className="border-destructive/50 bg-destructive/10">
-          <CardContent className="py-3 text-sm text-red-500">
-            {stream.error}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Controls */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Stream Controls</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="space-y-2">
-              <Label>Symbol</Label>
-              <SymbolCombobox
-                value={symbol}
-                onChange={setSymbol}
-                disabled={liveStarted}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Timeframe</Label>
-              <Select
-                value={timeframe}
-                onValueChange={setTimeframe}
-                disabled={liveStarted}
-              >
-                <SelectTrigger className="w-24">
+      {/* Chart + right rail. Chart takes the space; everything else is
+          secondary and sized to its content. */}
+      <div className="flex min-h-0 flex-1 gap-2 p-2">
+        <Panel
+          className="min-w-0 flex-1"
+          flush
+          title={
+            <span className="flex items-center gap-2">
+              {symbol}
+              <span className="text-muted-foreground/60">·</span>
+              <span className="normal-case tracking-normal">{timeframe}</span>
+            </span>
+          }
+          actions={
+            <>
+              <Select value={timeframe} onValueChange={setTimeframe}>
+                <SelectTrigger size="sm" className="h-7 w-[74px] text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {["1m", "5m", "15m", "30m", "1h", "4h"].map((tf) => (
-                    <SelectItem key={tf} value={tf}>
+                  {TIMEFRAMES.map((tf) => (
+                    <SelectItem key={tf} value={tf} className="text-xs">
                       {tf}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-            {!liveStarted ? (
               <Button
-                onClick={handleStart}
-                disabled={loadingChart || stream.status === "connecting" || !symbol}
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={loadChart}
+                disabled={loadingChart}
               >
-                {(loadingChart || stream.status === "connecting") && (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                )}
-                Watch Market
+                {loadingChart ? <Loader2 className="size-3 animate-spin" /> : "Reload"}
               </Button>
+            </>
+          }
+        >
+          <div className="relative h-full min-h-[320px]">
+            {loadingChart && historicalCandles.length === 0 ? (
+              <div className="flex h-full items-center justify-center">
+                <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : historicalCandles.length === 0 ? (
+              <Empty>
+                No chart data. Connect MT5 from the Connection page, then reload.
+              </Empty>
             ) : (
-              <Button variant="outline" onClick={handleStop}>
-                Stop
-              </Button>
+              <LiveChart
+                historicalCandles={historicalCandles}
+                latestCandle={stream.candle ?? null}
+                className="h-full"
+              />
             )}
           </div>
-        </CardContent>
-      </Card>
+        </Panel>
 
-      {/* Price Bar */}
-      {price && (
-        <div className="grid grid-cols-3 gap-3">
-          <Card className="border-green-500/20">
-            <CardContent className="py-4 text-center">
-              <p className="text-xs text-muted-foreground">BID</p>
-              <p className="text-2xl font-mono font-bold text-green-500 mt-1">
-                {price.bid.toFixed(isBigPrice ? 2 : 5)}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-4 text-center">
-              <p className="text-xs text-muted-foreground">SPREAD</p>
-              <p className="text-2xl font-mono font-bold mt-1">{spread}</p>
-              <p className="text-xs text-muted-foreground">{spreadUnit}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-red-500/20">
-            <CardContent className="py-4 text-center">
-              <p className="text-xs text-muted-foreground">ASK</p>
-              <p className="text-2xl font-mono font-bold text-red-500 mt-1">
-                {price.ask.toFixed(isBigPrice ? 2 : 5)}
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+        {/* Right rail */}
+        <div className="flex w-[280px] shrink-0 flex-col gap-2 overflow-y-auto">
+          <Panel title="Account">
+            {account ? (
+              <div className="grid grid-cols-2 gap-x-3 gap-y-3">
+                <Stat label="Balance" value={fmtMoney(account.balance)} tone="none" size="sm" />
+                <Stat label="Equity" value={fmtMoney(account.equity)} tone="none" size="sm" />
+                <Stat
+                  label="Free margin"
+                  value={fmtMoney(account.free_margin)}
+                  tone="none"
+                  size="sm"
+                />
+                <Stat label="Margin" value={fmtMoney(account.margin)} tone="none" size="sm" />
+                <Stat
+                  label="Open P&L"
+                  value={<Signed value={totalPnl} format={(v) => fmtMoney(v)} />}
+                  tone="none"
+                  size="sm"
+                  className="col-span-2"
+                  sub={`${positions.length} position${positions.length === 1 ? "" : "s"}`}
+                />
+              </div>
+            ) : (
+              <Empty>Not connected to MT5.</Empty>
+            )}
+          </Panel>
 
-      {/* Chart */}
-      {historicalCandles.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              {symbol} — {timeframe}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <LiveChart
-              historicalCandles={historicalCandles}
-              latestCandle={stream.candle}
-              rsiData={rsiData}
-              latestRSI={latestRSI}
-              className="h-[350px] sm:h-[500px] w-full"
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Account Info */}
-      {account && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[
-            { label: "Balance", value: `$${account.balance.toFixed(2)}`, color: "" },
-            { label: "Equity", value: `$${account.equity.toFixed(2)}`, color: account.equity >= account.balance ? "text-green-500" : "text-red-500" },
-            { label: "Free Margin", value: `$${account.free_margin.toFixed(2)}`, color: "" },
-            { label: "Floating P/L", value: `${account.profit >= 0 ? "+" : ""}$${account.profit.toFixed(2)}`, color: account.profit >= 0 ? "text-green-500" : "text-red-500" },
-          ].map((m) => (
-            <Card key={m.label} className="py-4">
-              <CardContent className="px-4">
-                <p className="text-xs text-muted-foreground">{m.label}</p>
-                <p className={`text-xl font-semibold mt-1 ${m.color}`}>{m.value}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {/* Positions */}
-      {positions.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              Open Positions
-              <Badge variant="secondary" className="ml-2 text-xs">{positions.length} active</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-md border overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Ticket</TableHead>
-                    <TableHead>Symbol</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead className="text-right">Volume</TableHead>
-                    <TableHead className="text-right">Open</TableHead>
-                    <TableHead className="text-right">Current</TableHead>
-                    <TableHead className="text-right">SL</TableHead>
-                    <TableHead className="text-right">TP</TableHead>
-                    <TableHead className="text-right">P/L</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {positions.map((pos) => (
-                    <TableRow key={pos.ticket}>
-                      <TableCell className="font-mono text-xs">{pos.ticket}</TableCell>
-                      <TableCell className="font-medium">{pos.symbol}</TableCell>
-                      <TableCell>
-                        <Badge variant={pos.type === "buy" ? "default" : "destructive"} className="text-xs">
-                          {pos.type.toUpperCase()}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-xs">{pos.volume}</TableCell>
-                      <TableCell className="text-right font-mono text-xs">{pos.open_price.toFixed(5)}</TableCell>
-                      <TableCell className="text-right font-mono text-xs">{pos.current_price.toFixed(5)}</TableCell>
-                      <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                        {pos.stop_loss ? pos.stop_loss.toFixed(5) : "---"}
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                        {pos.take_profit ? pos.take_profit.toFixed(5) : "---"}
-                      </TableCell>
-                      <TableCell className={`text-right font-semibold ${pos.profit >= 0 ? "text-green-500" : "text-red-500"}`}>
-                        {pos.profit >= 0 ? "+" : ""}${pos.profit.toFixed(2)}
-                      </TableCell>
-                    </TableRow>
+          <Panel title="Indicators">
+            {indicators ? (
+              <dl className="space-y-1.5 text-xs">
+                {Object.entries(indicators)
+                  .filter(([, v]) => typeof v === "number" && Number.isFinite(v))
+                  .slice(0, 12)
+                  .map(([k, v]) => (
+                    <div key={k} className="flex items-baseline justify-between gap-2">
+                      <dt className="truncate text-muted-foreground">{k}</dt>
+                      <dd className="price shrink-0 font-medium">
+                        {fmtPrice(v as number, Math.abs(v as number) > 100 ? 2 : 5)}
+                      </dd>
+                    </div>
                   ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+              </dl>
+            ) : (
+              <Empty>Waiting for the first candle.</Empty>
+            )}
+          </Panel>
+        </div>
+      </div>
 
-      {/* Indicators */}
-      {indicators && Object.keys(indicators).length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Technical Indicators</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              {Object.entries(indicators).map(([key, val]) => {
-                const display = typeof val === "number" ? val.toFixed(4) : val == null ? "---" : String(val);
-                return (
-                  <div key={key} className="rounded-lg border p-2 min-w-0">
-                    <p className="text-[10px] text-muted-foreground font-mono truncate" title={key}>{key}</p>
-                    <p className="text-sm font-semibold font-mono truncate" title={display}>{display}</p>
-                  </div>
-                );
-              })}
+      {/* Positions — the thing you check most often, so it gets a
+          permanent home rather than living below the fold. */}
+      <div className="min-h-0 shrink-0 px-2 pb-2">
+        <Panel
+          title={`Open positions${positions.length ? ` (${positions.length})` : ""}`}
+          flush
+          className="max-h-[220px]"
+          actions={
+            positions.length > 0 && (
+              <span className="text-xs">
+                <Signed value={totalPnl} format={(v) => fmtMoney(v)} />
+              </span>
+            )
+          }
+        >
+          {positions.length === 0 ? (
+            <Empty>No open positions.</Empty>
+          ) : (
+            <div className="max-h-[180px] overflow-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-surface-1">
+                  <tr className="border-b border-grid-line text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <Th className="text-left">Symbol</Th>
+                    <Th className="text-left">Side</Th>
+                    <Th>Volume</Th>
+                    <Th>Open</Th>
+                    <Th>Current</Th>
+                    <Th>SL</Th>
+                    <Th>TP</Th>
+                    <Th>P&L</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {positions.map((p) => {
+                    const isBuy = p.type?.toLowerCase().includes("buy");
+                    return (
+                      <tr
+                        key={p.ticket}
+                        className="border-b border-grid-line/60 last:border-0 hover:bg-surface-2"
+                      >
+                        <Td className="text-left font-medium">{p.symbol}</Td>
+                        <Td className="text-left">
+                          <span className={isBuy ? "text-up" : "text-down"}>
+                            {isBuy ? "BUY" : "SELL"}
+                          </span>
+                        </Td>
+                        <Td>{p.volume}</Td>
+                        <Td>{fmtPrice(p.open_price, digits)}</Td>
+                        <Td>{fmtPrice(p.current_price, digits)}</Td>
+                        <Td className="text-muted-foreground">
+                          {p.stop_loss ? fmtPrice(p.stop_loss, digits) : "—"}
+                        </Td>
+                        <Td className="text-muted-foreground">
+                          {p.take_profit ? fmtPrice(p.take_profit, digits) : "—"}
+                        </Td>
+                        <Td className={cn("font-medium", dirClass[dir(p.profit)])}>
+                          {fmtMoney(p.profit)}
+                        </Td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </Panel>
+      </div>
     </div>
   );
+}
+
+function Th({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <th className={cn("px-3 py-2 text-right font-medium", className)}>{children}</th>;
+}
+
+function Td({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <td className={cn("price px-3 py-1.5 text-right", className)}>{children}</td>;
 }

@@ -185,13 +185,13 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                   <div className="flex items-baseline justify-between gap-2">
                     <div>
                       <span className="text-[10px] text-muted-foreground">BID </span>
-                      <span className="text-sm font-mono font-semibold text-green-500">
+                      <span className="text-sm font-mono font-semibold text-up">
                         {ticker.price!.bid.toFixed(dec)}
                       </span>
                     </div>
                     <div className="text-right">
                       <span className="text-[10px] text-muted-foreground">ASK </span>
-                      <span className="text-sm font-mono font-semibold text-red-500">
+                      <span className="text-sm font-mono font-semibold text-down">
                         {ticker.price!.ask.toFixed(dec)}
                       </span>
                     </div>
@@ -209,7 +209,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                   Equity: <span className="font-mono font-medium text-foreground">${ticker.equity.toFixed(0)}</span>
                 </span>
                 {ticker.profit != null && (
-                  <span className={`font-mono font-medium ${ticker.profit >= 0 ? "text-green-500" : "text-red-500"}`}>
+                  <span className={`font-mono font-medium ${ticker.profit >= 0 ? "text-up" : "text-down"}`}>
                     {ticker.profit >= 0 ? "+" : ""}${ticker.profit.toFixed(2)}
                   </span>
                 )}

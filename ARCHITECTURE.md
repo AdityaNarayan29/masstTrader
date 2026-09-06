@@ -681,7 +681,6 @@ backend/
     sessions.py             Session detection, Gold windows, news blackout
     db.py                   agent_trades, agent_cycles, agent_daily_stats
     graph.py                TradingAgent class -- main loop, data fetching
-    data_fetcher.py         Smart data layer (MT5 local / EC2 remote / CCXT)
     feeds/
       crypto_feed.py        CCXT Binance/Bybit with failover
     nodes/
