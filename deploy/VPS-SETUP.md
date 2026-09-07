@@ -139,3 +139,56 @@ nssm start|stop|restart|status massttrader
 type C:\masstTrader\logs\stdout.log
 type C:\masstTrader\logs\stderr.log
 ```
+
+## HTTPS (removes the reverse-proxy failure mode)
+
+The backend is HTTP-only, so an HTTPS frontend cannot call it directly - browsers
+block mixed content. That is why `vercel.json` proxies `/api/*` to the VM, and
+that proxy is a single point of failure: when its target IP goes stale every
+request returns **502** and the app looks completely broken while the backend is
+perfectly healthy. That happened twice here (a dead EC2 IP, then a dead
+`51.21.102.111`).
+
+Giving the VM real HTTPS removes the proxy from the path entirely.
+
+`sslip.io` resolves `<dashed-ip>.sslip.io` to that IP, so Let's Encrypt can issue
+a genuine certificate without owning a domain.
+
+```powershell
+# 1. Caddy
+New-Item -ItemType Directory -Force -Path C:\caddy
+Invoke-WebRequest -Uri "https://github.com/caddyserver/caddy/releases/download/v2.8.4/caddy_2.8.4_windows_amd64.zip" -OutFile "$env:TEMP\caddy.zip" -UseBasicParsing
+Expand-Archive "$env:TEMP\caddy.zip" "$env:TEMP\caddyx" -Force
+Copy-Item "$env:TEMP\caddyx\caddy.exe" C:\caddy\caddy.exe
+
+# 2. Firewall (80 is required for the ACME HTTP-01 challenge)
+New-NetFirewallRule -DisplayName "Caddy 80"  -Direction Inbound -Protocol TCP -LocalPort 80  -Action Allow
+New-NetFirewallRule -DisplayName "Caddy 443" -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow
+
+# 3. Caddyfile - substitute your own dashed IP
+Set-Content C:\caddy\Caddyfile "51-107-189-223.sslip.io {`n    reverse_proxy localhost:8008`n}"
+
+# 4. Run
+C:\caddy\caddy.exe start --config C:\caddy\Caddyfile
+```
+
+Also open 80 and 443 in the Azure NSG.
+
+**Persist across reboots** (must be run on the box - a startup task):
+
+```powershell
+$a = New-ScheduledTaskAction -Execute "C:\caddy\caddy.exe" -Argument "run --config C:\caddy\Caddyfile" -WorkingDirectory "C:\caddy"
+Register-ScheduledTask -TaskName "CaddyAutoStart" -Action $a `
+  -Trigger (New-ScheduledTaskTrigger -AtStartup) -RunLevel Highest -User "SYSTEM"
+```
+
+The frontend then talks to the VM directly, no proxy:
+
+```
+NEXT_PUBLIC_API_URL=https://51-107-189-223.sslip.io
+NEXT_PUBLIC_API_KEY=<your key>
+```
+
+Note that this path **is** cross-origin, so the frontend's origin must appear in
+`CORS_ORIGINS` in `.env`. The `vercel.json` rewrite made requests same-origin and
+sidestepped CORS; calling the VM directly does not.
