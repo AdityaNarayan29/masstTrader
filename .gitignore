@@ -19,3 +19,6 @@ data/ml_models/
 .idea/
 *.log
 .next/
+
+# Agent audit logs (daily JSONL, 90-day retention)
+logs/

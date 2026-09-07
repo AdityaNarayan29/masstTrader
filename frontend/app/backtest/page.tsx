@@ -267,46 +267,46 @@ export default function BacktestPage() {
         {
           label: "Win Rate",
           value: `${stats.win_rate.toFixed(1)}%`,
-          color: stats.win_rate >= 50 ? "text-green-500" : "text-red-500",
+          color: stats.win_rate >= 50 ? "text-up" : "text-down",
         },
         {
           label: "Total Profit",
           value: `$${stats.total_profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-          color: stats.total_profit >= 0 ? "text-green-500" : "text-red-500",
+          color: stats.total_profit >= 0 ? "text-up" : "text-down",
         },
         {
           label: "Profit Factor",
           value: stats.profit_factor.toFixed(2),
-          color: stats.profit_factor >= 1 ? "text-green-500" : "text-red-500",
+          color: stats.profit_factor >= 1 ? "text-up" : "text-down",
         },
         {
           label: "Max Drawdown",
           value: `${stats.max_drawdown.toFixed(2)}%`,
-          color: "text-red-500",
+          color: "text-down",
         },
         {
           label: "Sharpe Ratio",
           value: stats.sharpe_ratio.toFixed(2),
-          color: stats.sharpe_ratio >= 1 ? "text-green-500" : stats.sharpe_ratio >= 0 ? "text-muted-foreground" : "text-red-500",
+          color: stats.sharpe_ratio >= 1 ? "text-up" : stats.sharpe_ratio >= 0 ? "text-muted-foreground" : "text-down",
         },
         {
           label: "Avg Win",
           value: `$${stats.avg_win.toFixed(2)}`,
-          color: "text-green-500",
+          color: "text-up",
         },
         {
           label: "Avg Loss",
           value: `$${stats.avg_loss.toFixed(2)}`,
-          color: "text-red-500",
+          color: "text-down",
         },
       ]
     : [];
 
   return (
-    <div className="max-w-5xl space-y-6">
+    <div className="flex w-full flex-1 flex-col space-y-4">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Strategy Backtester</h1>
+        <h1 className="text-lg font-semibold tracking-tight">Strategy Backtester</h1>
         <p className="text-muted-foreground text-sm mt-1">
           Test your parsed strategy against historical data
         </p>
@@ -315,7 +315,7 @@ export default function BacktestPage() {
       {/* Error */}
       {error && (
         <Card className="border-destructive/50 bg-destructive/10">
-          <CardContent className="py-3 text-sm text-red-500">
+          <CardContent className="py-3 text-sm text-down">
             {error}
           </CardContent>
         </Card>
@@ -403,6 +403,41 @@ export default function BacktestPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Empty state. Previously the page rendered the parameter form and then
+          nothing at all, leaving three-quarters of the viewport blank until a
+          run finished. An empty result area should explain what a run produces
+          and how to start one. */}
+      {!stats && !loading && (
+        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-surface-1 px-6 py-12 text-center">
+          <p className="text-sm font-medium">No backtest run yet</p>
+          <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+            Pick a strategy and press <span className="font-medium">Run Backtest</span>.
+            You&apos;ll get an equity curve, per-trade entries and exits plotted on the
+            chart, and a full statistics breakdown — win rate, profit factor, max
+            drawdown and Sharpe.
+          </p>
+          <div className="mx-auto mt-6 grid max-w-lg grid-cols-2 gap-3 text-left sm:grid-cols-4">
+            {["Equity curve", "Trade markers", "Win rate & PF", "Drawdown"].map((f) => (
+              <div
+                key={f}
+                className="rounded border border-grid-line px-2 py-1.5 text-[11px] text-muted-foreground"
+              >
+                {f}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {loading && !stats && (
+        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-border bg-surface-1 px-6 py-12 text-center">
+          <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
+          <p className="mt-3 text-xs text-muted-foreground">
+            Running the strategy over historical candles…
+          </p>
+        </div>
+      )}
 
       {stats && (
         <>
@@ -638,7 +673,7 @@ export default function BacktestPage() {
                         </TableCell>
                         <TableCell
                           className={`text-right font-medium ${
-                            t.pnl_pips >= 0 ? "text-green-500" : "text-red-500"
+                            t.pnl_pips >= 0 ? "text-up" : "text-down"
                           }`}
                         >
                           {t.pnl_pips >= 0 ? "+" : ""}
@@ -646,7 +681,7 @@ export default function BacktestPage() {
                         </TableCell>
                         <TableCell
                           className={`text-right font-semibold ${
-                            t.profit >= 0 ? "text-green-500" : "text-red-500"
+                            t.profit >= 0 ? "text-up" : "text-down"
                           }`}
                         >
                           {t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}

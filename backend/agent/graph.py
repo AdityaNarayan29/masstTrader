@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from backend.agent.config import AgentConfig
 from backend.agent.state import AgentState
-from backend.agent import db
+from backend.agent import db, audit, notifier
 from backend.agent.nodes import (
     market_scanner,
     context_enricher,
@@ -36,6 +36,8 @@ class TradingAgent:
         self._running = False
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
+        # Alert de-duplication: a persistent halt must not alert every cycle.
+        self._last_halt_kind: str | None = None
         self._state: AgentState = {}
         self._cycle_count = 0
         self._last_error: str | None = None
@@ -75,9 +77,16 @@ class TradingAgent:
         self._running = True
         self._halted = False
         self._halt_reason = None
+        # Enforce the audit-log retention window (spec S10: 90 days).
+        audit.prune()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         logger.info("Agent started")
+        notifier.startup(
+            AgentConfig.ENV,
+            self._watchlist if hasattr(self, "_watchlist") else AgentConfig.WATCHLIST,
+            AgentConfig.TIMEFRAME_MODE,
+        )
 
     def stop(self):
         """Stop the agent loop gracefully."""
@@ -86,12 +95,14 @@ class TradingAgent:
         if self._thread:
             self._thread.join(timeout=30)
         logger.info("Agent stopped")
+        notifier.shutdown()
 
     def halt(self, reason: str):
         """Emergency halt — stops trading but keeps loop alive for monitoring."""
         self._halted = True
         self._halt_reason = reason
         logger.warning(f"Agent HALTED: {reason}")
+        notifier.agent_error("halt", reason, action="trading suspended")
 
     def resume(self):
         """Resume after a halt."""
@@ -436,6 +447,22 @@ class TradingAgent:
         except Exception as e:
             logger.error(f"Failed to log cycle: {e}")
 
+        # Durable forensic record (spec S10). Survives the SQLite db being wiped,
+        # and captures the macro snapshot the decision was actually made against.
+        audit.write_cycle({
+            **cycle_data,
+            "prompt_version": AgentConfig.PROMPT_VERSION,
+            "agent_env": AgentConfig.ENV,
+            "macro_context": state.get("macro_context", {}),
+            "crypto_context": state.get("crypto_context", {}),
+            "gold_context": state.get("gold_context", {}),
+            "sentiment_context": state.get("sentiment_context", {}),
+            "account": state.get("account", {}),
+            "consecutive_losses": state.get("consecutive_losses", 0),
+        })
+
+        self._send_cycle_alerts(state, signals_log, orders_log, executions_log)
+
         logger.info(
             f"Cycle {state.get('cycle_id')} completed in {duration_ms}ms — "
             f"cleared={len(state.get('cleared_symbols', []))}, "
@@ -443,6 +470,80 @@ class TradingAgent:
             f"executions={len([e for e in executions_log.values() if e.get('success')])}, "
             f"monitor_actions={len(state.get('monitor_actions', []))}"
         )
+
+
+    def _send_cycle_alerts(self, state, signals_log, orders_log, executions_log):
+        """Push Telegram alerts for anything a human needs to know about.
+
+        Never raises - alerting must not be able to stop the trading loop.
+        """
+        try:
+            # Risk halts. De-duplicated: a halt that persists across cycles alerts
+            # once on the transition, not every 5 minutes until it clears.
+            halt = state.get("risk_halt")
+            kind = halt.get("kind") if halt else None
+            if kind and kind != self._last_halt_kind:
+                balance = (halt or {}).get("balance", 0)
+                if kind == "daily_drawdown":
+                    notifier.daily_drawdown_halt(balance, halt.get("dd_pct", 0))
+                elif kind == "weekly_drawdown":
+                    notifier.weekly_drawdown_halt(balance, halt.get("dd_pct", 0))
+                elif kind == "zero_balance":
+                    notifier.agent_error("risk_calculator", halt.get("detail", ""),
+                                         action="no trades placed")
+                else:
+                    notifier.blocked("-", halt.get("detail", kind))
+            self._last_halt_kind = kind
+
+            # Filled orders
+            for sym, ex in (executions_log or {}).items():
+                if ex.get("success"):
+                    order = state.get("orders", {}).get(sym, {})
+                    sig = state.get("signals", {}).get(sym, {})
+                    notifier.trade_opened(
+                        {**order, "symbol": sym},
+                        ex,
+                        confidence=sig.get("confidence", 0),
+                        reasoning=sig.get("reasoning", ""),
+                    )
+
+            # Position management actions
+            account = state.get("account", {}) or {}
+            for act in state.get("monitor_actions", []) or []:
+                name = act.get("action", "")
+                sym = act.get("symbol", "?")
+                if name.startswith("close"):
+                    notifier.trade_closed(
+                        sym, act.get("pnl", 0),
+                        act.get("reason", name),
+                        account.get("balance", 0),
+                    )
+                elif name == "partial_exit_1R":
+                    notifier.partial_exit(sym, act.get("price"), act.get("pnl", 0))
+
+            # Hard-rule rejections worth knowing about (DXY / funding blocks)
+            for sym, order in (orders_log or {}).items():
+                reason = (order or {}).get("reject_reason") or ""
+                if any(k in reason for k in ("DXY", "funding")):
+                    notifier.blocked(sym, reason)
+
+            # Consecutive-loss circuit breaker
+            losses = state.get("consecutive_losses", 0)
+            if losses >= 2:
+                reduction = (AgentConfig.CONSEC_LOSS_3_SIZE_REDUCTION if losses >= 3
+                             else AgentConfig.CONSEC_LOSS_2_SIZE_REDUCTION) * 100
+                min_conf = (AgentConfig.CONSEC_LOSS_3_MIN_CONFIDENCE if losses >= 3
+                            else AgentConfig.CONFIDENCE_THRESHOLD)
+                notifier.circuit_breaker(losses, reduction, min_conf)
+
+            # Errors raised inside the cycle
+            for err in state.get("errors", []) or []:
+                notifier.agent_error(
+                    (err or {}).get("node", "cycle") if isinstance(err, dict) else "cycle",
+                    (err or {}).get("error", err) if isinstance(err, dict) else err,
+                )
+        except Exception as e:  # noqa: BLE001 - alerting is best-effort
+            logger.error(f"Failed to send cycle alerts: {e}")
 
 
 # ── Singleton agent instance ────────────────────────────────────

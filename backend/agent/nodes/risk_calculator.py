@@ -25,23 +25,35 @@ def run(state: AgentState) -> AgentState:
     # ── Global kill switches ─────────────────────────────────────
     if balance <= 0:
         logger.warning("RISK: Balance is 0, halting all trades")
-        return {**state, "orders": {}}
+        return {**state, "orders": {}, "risk_halt": {
+            "kind": "zero_balance", "balance": balance,
+            "detail": "Account balance is zero - cannot size any position",
+        }}
 
     daily_dd_pct = abs(daily_pnl / balance * 100) if daily_pnl < 0 else 0
     weekly_dd_pct = abs(weekly_pnl / balance * 100) if weekly_pnl < 0 else 0
 
     if daily_dd_pct >= AgentConfig.DAILY_DRAWDOWN_LIMIT:
         logger.warning(f"RISK: Daily drawdown {daily_dd_pct:.1f}% >= {AgentConfig.DAILY_DRAWDOWN_LIMIT}% — HALTED")
-        return {**state, "orders": {}}
+        return {**state, "orders": {}, "risk_halt": {
+            "kind": "daily_drawdown", "balance": balance, "dd_pct": daily_dd_pct,
+            "detail": f"Daily drawdown {daily_dd_pct:.2f}% >= {AgentConfig.DAILY_DRAWDOWN_LIMIT}%",
+        }}
 
     if weekly_dd_pct >= AgentConfig.WEEKLY_DRAWDOWN_LIMIT:
         logger.warning(f"RISK: Weekly drawdown {weekly_dd_pct:.1f}% >= {AgentConfig.WEEKLY_DRAWDOWN_LIMIT}% — HALTED")
-        return {**state, "orders": {}}
+        return {**state, "orders": {}, "risk_halt": {
+            "kind": "weekly_drawdown", "balance": balance, "dd_pct": weekly_dd_pct,
+            "detail": f"Weekly drawdown {weekly_dd_pct:.2f}% >= {AgentConfig.WEEKLY_DRAWDOWN_LIMIT}%",
+        }}
 
     # ── Max open positions check ─────────────────────────────────
     if len(open_positions) >= AgentConfig.MAX_OPEN_POSITIONS:
         logger.info(f"RISK: Max positions ({AgentConfig.MAX_OPEN_POSITIONS}) reached")
-        return {**state, "orders": {}}
+        return {**state, "orders": {}, "risk_halt": {
+            "kind": "max_positions", "balance": balance,
+            "detail": f"Max open positions ({AgentConfig.MAX_OPEN_POSITIONS}) reached",
+        }}
 
     signals = state.get("signals", {})
 
@@ -60,7 +72,7 @@ def run(state: AgentState) -> AgentState:
                 f"RR {order['rr_ratio']:.2f}"
             )
 
-    return {**state, "orders": orders}
+    return {**state, "orders": orders, "risk_halt": None}
 
 
 def _validate_signal(

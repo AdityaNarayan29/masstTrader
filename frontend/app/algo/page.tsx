@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { api } from "@/lib/api";
 import { useLiveStream } from "@/hooks/use-live-stream";
+import { usePersistedState } from "@/hooks/use-persisted-state";
+import { fmtMoney, Signed } from "@/components/trade/num";
 import { LiveChart, type TradeMarkerData, type PositionOverlay } from "@/components/live-chart";
 import { Loader2 } from "lucide-react";
 import { SymbolCombobox } from "@/components/symbol-combobox";
@@ -80,33 +82,13 @@ export default function AlgoPage() {
   // Strategy & algo config
   type StrategyItem = Awaited<ReturnType<typeof api.strategies.list>>[number];
   const [strategies, setStrategies] = useState<StrategyItem[]>([]);
-  const [strategyId, _setStrategyId] = useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("algo_strategyId") || "__current__";
-    return "__current__";
-  });
-  const [symbol, _setSymbol] = useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("algo_symbol") || "";
-    return "";
-  });
-  const [timeframe, _setTimeframe] = useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("algo_timeframe") || "5m";
-    return "5m";
-  });
+  // Persisted selections. These MUST restore after hydration rather than during
+  // it — reading localStorage inside useState makes the client's first render
+  // disagree with the server's, which is a hydration mismatch.
+  const [strategyId, setStrategyId] = usePersistedState("algo_strategyId", "__current__");
+  const [symbol, setSymbol] = usePersistedState("algo_symbol", "");
+  const [timeframe, setTimeframe] = usePersistedState("algo_timeframe", "5m");
   const [volume, setVolume] = useState(0.01);
-
-  // Wrap setters to persist to localStorage
-  const setStrategyId = (id: string) => {
-    _setStrategyId(id);
-    if (typeof window !== "undefined") localStorage.setItem("algo_strategyId", id);
-  };
-  const setSymbol = (s: string) => {
-    _setSymbol(s);
-    if (typeof window !== "undefined") localStorage.setItem("algo_symbol", s);
-  };
-  const setTimeframe = (tf: string) => {
-    _setTimeframe(tf);
-    if (typeof window !== "undefined") localStorage.setItem("algo_timeframe", tf);
-  };
 
   // Full strategy (with all rules) — fetched when strategy is selected
   const [fullStrategy, setFullStrategy] = useState<FullStrategy | null>(null);
@@ -376,6 +358,32 @@ export default function AlgoPage() {
       .finally(() => setLoadingChart(false));
   }, [polledAlgo]);
 
+  // Load the chart on arrival, not only when an algo is already running.
+  // Previously /algo showed a form, a rules card and ~1700px of empty space
+  // until you pressed Start — an algo screen with no chart on it. The chart is
+  // how you judge whether the strategy's conditions make sense before running.
+  useEffect(() => {
+    if (!symbol) return;
+    let cancelled = false;
+    const tf = selectedStrategy?.timeframe ? toUiTimeframe(selectedStrategy.timeframe) : timeframe;
+    setLoadingChart(true);
+    api.data
+      .fetch(symbol, tf, 200)
+      .then((data) => {
+        if (!cancelled) setHistoricalCandles(data.candles as unknown as HistoricalCandle[]);
+      })
+      .catch(() => {
+        if (!cancelled) setHistoricalCandles([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingChart(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, timeframe, selectedStrategy?.timeframe]);
+
   // HTTP poll fallback for price/account/positions when SSE is down
   useEffect(() => {
     if (stream.status === "connected" || !streamStarted || !symbol) {
@@ -461,11 +469,11 @@ export default function AlgoPage() {
     : stream.candle?.indicators ?? null;
 
   return (
-    <div className="max-w-5xl space-y-6">
+    <div className="w-full space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Algo Trader</h1>
+          <h1 className="text-lg font-semibold tracking-tight">Algo Trader</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Run automated strategies with live visualization
           </p>
@@ -531,7 +539,7 @@ export default function AlgoPage() {
       {/* Error */}
       {stream.error && (
         <Card className="border-destructive/50 bg-destructive/10">
-          <CardContent className="py-3 text-sm text-red-500">
+          <CardContent className="py-3 text-sm text-down">
             {stream.error}
           </CardContent>
         </Card>
@@ -700,8 +708,8 @@ export default function AlgoPage() {
                   {displayRules.map((rule, ri) => {
                     const isActive = ri === 0;
                     const dir = rule.direction || "buy";
-                    const borderColor = dir === "buy" ? "border-green-500/30" : "border-red-500/30";
-                    const bgColor = dir === "buy" ? "bg-green-500/5" : "bg-red-500/5";
+                    const borderColor = dir === "buy" ? "border-up/30" : "border-down/30";
+                    const bgColor = dir === "buy" ? "bg-up/5" : "bg-down/5";
                     return (
                       <div key={ri} className={`rounded-lg border ${borderColor} ${bgColor} p-3 space-y-2`}>
                         <div className="flex items-center gap-2 flex-wrap">
@@ -797,9 +805,9 @@ export default function AlgoPage() {
                   <Badge
                     variant="outline"
                     className={`text-[10px] font-mono ${
-                      algo.ml_confidence.score >= 0.7 ? "border-green-500 text-green-500" :
+                      algo.ml_confidence.score >= 0.7 ? "border-green-500 text-up" :
                       algo.ml_confidence.score >= 0.55 ? "border-yellow-500 text-yellow-500" :
-                      "border-red-500 text-red-500"
+                      "border-red-500 text-down"
                     }`}
                   >
                     {(algo.ml_confidence.score * 100).toFixed(0)}%
@@ -819,32 +827,46 @@ export default function AlgoPage() {
         </CardContent>
       </Card>
 
-      {/* Price Bar */}
+      {/* Price strip. Was three ~110px cards with 2xl figures for three
+          numbers; that is a headline, not a readout. Reuses the page's existing
+          stream rather than mounting MarketBar, which would open a second SSE
+          connection for data this page already has. */}
       {price && (
-        <div className="grid grid-cols-3 gap-3">
-          <Card className="border-green-500/20">
-            <CardContent className="py-4 text-center">
-              <p className="text-xs text-muted-foreground">BID</p>
-              <p className="text-2xl font-mono font-bold text-green-500 mt-1">
-                {price.bid.toFixed(isBigPrice ? 2 : 5)}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-4 text-center">
-              <p className="text-xs text-muted-foreground">SPREAD</p>
-              <p className="text-2xl font-mono font-bold mt-1">{spread}</p>
-              <p className="text-xs text-muted-foreground">{spreadUnit}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-red-500/20">
-            <CardContent className="py-4 text-center">
-              <p className="text-xs text-muted-foreground">ASK</p>
-              <p className="text-2xl font-mono font-bold text-red-500 mt-1">
-                {price.ask.toFixed(isBigPrice ? 2 : 5)}
-              </p>
-            </CardContent>
-          </Card>
+        <div className="flex items-center gap-4 overflow-x-auto rounded-lg border border-border bg-surface-2 px-3 py-2">
+          <div className="shrink-0">
+            <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Bid</div>
+            <div className="price text-base font-semibold text-down">
+              {price.bid.toFixed(isBigPrice ? 2 : 5)}
+            </div>
+          </div>
+          <div className="shrink-0">
+            <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Ask</div>
+            <div className="price text-base font-semibold text-up">
+              {price.ask.toFixed(isBigPrice ? 2 : 5)}
+            </div>
+          </div>
+          <div className="h-8 w-px shrink-0 bg-border" />
+          <div className="shrink-0">
+            <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Spread</div>
+            <div className="price text-base font-semibold">
+              {spread} <span className="text-[10px] font-normal text-muted-foreground">{spreadUnit}</span>
+            </div>
+          </div>
+          {account && (
+            <>
+              <div className="h-8 w-px shrink-0 bg-border" />
+              <div className="shrink-0">
+                <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Equity</div>
+                <div className="price text-base font-semibold">{fmtMoney(account.equity)}</div>
+              </div>
+              <div className="shrink-0">
+                <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Floating P&amp;L</div>
+                <div className="text-base font-semibold">
+                  <Signed value={account.profit} format={(v) => fmtMoney(v)} />
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -872,7 +894,7 @@ export default function AlgoPage() {
 
       {/* Active Position P/L */}
       {activePosition && (
-        <Card className={`border-2 ${activePosition.profit >= 0 ? "border-green-500/50 bg-green-500/5" : "border-red-500/50 bg-red-500/5"}`}>
+        <Card className={`border-2 ${activePosition.profit >= 0 ? "border-up/50 bg-up/5" : "border-down/50 bg-down/5"}`}>
           <CardContent className="py-5">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-3">
@@ -889,7 +911,7 @@ export default function AlgoPage() {
                 </div>
               </div>
               <div className="text-center sm:text-right">
-                <p className={`text-3xl font-bold font-mono ${activePosition.profit >= 0 ? "text-green-500" : "text-red-500"}`}>
+                <p className={`text-3xl font-bold font-mono ${activePosition.profit >= 0 ? "text-up" : "text-down"}`}>
                   {activePosition.profit >= 0 ? "+" : ""}${activePosition.profit.toFixed(2)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">Unrealized P/L</p>
@@ -910,13 +932,13 @@ export default function AlgoPage() {
               </div>
               <div>
                 <p className="text-[10px] text-muted-foreground uppercase">Stop Loss</p>
-                <p className="text-sm font-mono font-semibold text-red-500">
+                <p className="text-sm font-mono font-semibold text-down">
                   {activePosition.stop_loss ? activePosition.stop_loss.toFixed(activePosition.symbol.includes("BTC") ? 2 : 5) : "---"}
                 </p>
               </div>
               <div>
                 <p className="text-[10px] text-muted-foreground uppercase">Take Profit</p>
-                <p className="text-sm font-mono font-semibold text-green-500">
+                <p className="text-sm font-mono font-semibold text-up">
                   {activePosition.take_profit ? activePosition.take_profit.toFixed(activePosition.symbol.includes("BTC") ? 2 : 5) : "---"}
                 </p>
               </div>
@@ -957,7 +979,7 @@ export default function AlgoPage() {
                     {ts.direction.toUpperCase()}
                   </Badge>
                   {rMultiple != null && (
-                    <span className={`text-sm font-mono font-bold ${rMultiple >= 0 ? "text-green-500" : "text-red-500"}`}>
+                    <span className={`text-sm font-mono font-bold ${rMultiple >= 0 ? "text-up" : "text-down"}`}>
                       {rMultiple >= 0 ? "+" : ""}{rMultiple.toFixed(2)}R
                     </span>
                   )}
@@ -971,7 +993,7 @@ export default function AlgoPage() {
                   <div className="relative h-3 rounded-full bg-muted overflow-hidden">
                     {/* Progress fill */}
                     <div
-                      className={`absolute inset-y-0 left-0 rounded-full transition-all ${pnlDist >= 0 ? "bg-green-500/60" : "bg-red-500/60"}`}
+                      className={`absolute inset-y-0 left-0 rounded-full transition-all ${pnlDist >= 0 ? "bg-up/60" : "bg-down/60"}`}
                       style={{ width: `${progressPct}%` }}
                     />
                     {/* Entry marker */}
@@ -981,9 +1003,9 @@ export default function AlgoPage() {
                     />
                   </div>
                   <div className="flex justify-between text-[9px] text-muted-foreground font-mono">
-                    <span className="text-red-500">SL</span>
+                    <span className="text-down">SL</span>
                     <span className="text-blue-500">Entry</span>
-                    <span className="text-green-500">TP</span>
+                    <span className="text-up">TP</span>
                   </div>
                 </div>
               )}
@@ -1000,7 +1022,7 @@ export default function AlgoPage() {
                   <p className="text-[10px] text-muted-foreground uppercase">
                     SL {ts.sl_atr_mult ? `(${ts.sl_atr_mult}x ATR)` : ""}
                   </p>
-                  <p className="text-sm font-mono font-semibold text-red-500">
+                  <p className="text-sm font-mono font-semibold text-down">
                     {ts.sl_price ? ts.sl_price.toFixed(dec) : "---"}
                   </p>
                   {slDist != null && (
@@ -1013,7 +1035,7 @@ export default function AlgoPage() {
                   <p className="text-[10px] text-muted-foreground uppercase">
                     TP {ts.tp_atr_mult ? `(${ts.tp_atr_mult}x ATR)` : ""}
                   </p>
-                  <p className="text-sm font-mono font-semibold text-green-500">
+                  <p className="text-sm font-mono font-semibold text-up">
                     {ts.tp_price ? ts.tp_price.toFixed(dec) : "---"}
                   </p>
                   {tpDist != null && (
@@ -1047,9 +1069,9 @@ export default function AlgoPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
             { label: "Balance", value: `$${account.balance.toFixed(2)}`, color: "" },
-            { label: "Equity", value: `$${account.equity.toFixed(2)}`, color: account.equity >= account.balance ? "text-green-500" : "text-red-500" },
+            { label: "Equity", value: `$${account.equity.toFixed(2)}`, color: account.equity >= account.balance ? "text-up" : "text-down" },
             { label: "Free Margin", value: `$${account.free_margin.toFixed(2)}`, color: "" },
-            { label: "Floating P/L", value: `${account.profit >= 0 ? "+" : ""}$${account.profit.toFixed(2)}`, color: account.profit >= 0 ? "text-green-500" : "text-red-500" },
+            { label: "Floating P/L", value: `${account.profit >= 0 ? "+" : ""}$${account.profit.toFixed(2)}`, color: account.profit >= 0 ? "text-up" : "text-down" },
           ].map((m) => (
             <Card key={m.label} className="py-4">
               <CardContent className="px-4">
@@ -1105,7 +1127,7 @@ export default function AlgoPage() {
                       <TableCell className="text-right font-mono text-xs text-muted-foreground">
                         {pos.take_profit ? pos.take_profit.toFixed(5) : "---"}
                       </TableCell>
-                      <TableCell className={`text-right font-semibold ${pos.profit >= 0 ? "text-green-500" : "text-red-500"}`}>
+                      <TableCell className={`text-right font-semibold ${pos.profit >= 0 ? "text-up" : "text-down"}`}>
                         {pos.profit >= 0 ? "+" : ""}${pos.profit.toFixed(2)}
                       </TableCell>
                     </TableRow>
@@ -1144,14 +1166,14 @@ export default function AlgoPage() {
                       Waiting for <Badge variant="default" className="text-[10px] mx-1">ENTRY</Badge>
                       {failingEntry.length > 0
                         ? <span className="text-muted-foreground"> — need {failingEntry.length} more condition{failingEntry.length > 1 ? "s" : ""}</span>
-                        : <span className="text-green-500"> — all conditions met, entering on next tick</span>
+                        : <span className="text-up"> — all conditions met, entering on next tick</span>
                       }
                     </p>
                     {failingEntry.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">
                         {failingEntry.map((c, i) => (
-                          <span key={i} className="inline-flex items-center gap-1 rounded-md border border-red-500/20 bg-red-500/5 px-2 py-0.5 text-[11px] font-mono text-red-500">
-                            <span className="text-red-500">{"\u2717"}</span>
+                          <span key={i} className="inline-flex items-center gap-1 rounded-md border border-down/20 bg-down/5 px-2 py-0.5 text-[11px] font-mono text-down">
+                            <span className="text-down">{"\u2717"}</span>
                             {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""} {c.operator} {String(c.value)}
                           </span>
                         ))}
@@ -1173,7 +1195,7 @@ export default function AlgoPage() {
                         ? <span className="text-yellow-500"> — gated for {barsNeeded} more bar{barsNeeded > 1 ? "s" : ""}</span>
                         : failingExit.length > 0
                           ? <span className="text-muted-foreground"> — need {failingExit.length} condition{failingExit.length > 1 ? "s" : ""} OR SL/TP hit</span>
-                          : <span className="text-green-500"> — all exit conditions met, closing on next tick</span>
+                          : <span className="text-up"> — all exit conditions met, closing on next tick</span>
                       }
                     </p>
                     <div className="flex flex-wrap gap-1.5">
@@ -1183,18 +1205,18 @@ export default function AlgoPage() {
                         </span>
                       )}
                       {failingExit.map((c, i) => (
-                        <span key={i} className="inline-flex items-center gap-1 rounded-md border border-red-500/20 bg-red-500/5 px-2 py-0.5 text-[11px] font-mono text-red-500">
+                        <span key={i} className="inline-flex items-center gap-1 rounded-md border border-down/20 bg-down/5 px-2 py-0.5 text-[11px] font-mono text-down">
                           <span>{"\u2717"}</span>
                           {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""} {c.operator} {String(c.value)}
                         </span>
                       ))}
                       {algo.trade_state?.sl_price != null && (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-red-500/20 bg-red-500/5 px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
+                        <span className="inline-flex items-center gap-1 rounded-md border border-down/20 bg-down/5 px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
                           SL @ {algo.trade_state.sl_price.toFixed(dec)}
                         </span>
                       )}
                       {algo.trade_state?.tp_price != null && (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-green-500/20 bg-green-500/5 px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
+                        <span className="inline-flex items-center gap-1 rounded-md border border-up/20 bg-up/5 px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
                           TP @ {algo.trade_state.tp_price.toFixed(dec)}
                         </span>
                       )}
@@ -1279,7 +1301,7 @@ export default function AlgoPage() {
                               {isActive && ruleEntryConditions.length > 0
                                 ? ruleEntryConditions.map((c, ci) => (
                                     <div key={ci} className="flex items-center gap-2 text-xs">
-                                      <span className={`shrink-0 text-base ${c.passed ? "text-green-500" : "text-red-500"}`}>
+                                      <span className={`shrink-0 text-base ${c.passed ? "text-up" : "text-down"}`}>
                                         {c.passed ? "\u2713" : "\u2717"}
                                       </span>
                                       <span className="font-mono">
@@ -1309,7 +1331,7 @@ export default function AlgoPage() {
                                   : curP >= algo.trade_state!.sl_price!;
                                 return (
                                   <div className="flex items-center gap-2 text-xs">
-                                    <span className={`shrink-0 text-base ${slHit ? "text-red-500" : "text-muted-foreground"}`}>
+                                    <span className={`shrink-0 text-base ${slHit ? "text-down" : "text-muted-foreground"}`}>
                                       {slHit ? "\u2717" : "\u2713"}
                                     </span>
                                     <span className="font-mono">
@@ -1326,7 +1348,7 @@ export default function AlgoPage() {
                                   : curP <= algo.trade_state!.tp_price!;
                                 return (
                                   <div className="flex items-center gap-2 text-xs">
-                                    <span className={`shrink-0 text-base ${tpHit ? "text-green-500" : "text-muted-foreground"}`}>
+                                    <span className={`shrink-0 text-base ${tpHit ? "text-up" : "text-muted-foreground"}`}>
                                       {tpHit ? "\u2713" : "\u2717"}
                                     </span>
                                     <span className="font-mono">
@@ -1344,7 +1366,7 @@ export default function AlgoPage() {
                                       : false;
                                     return (
                                       <div key={ci} className="flex items-center gap-2 text-xs">
-                                        <span className={`shrink-0 text-base ${c.passed ? "text-green-500" : "text-red-500"}`}>
+                                        <span className={`shrink-0 text-base ${c.passed ? "text-up" : "text-down"}`}>
                                           {c.passed ? "\u2713" : "\u2717"}
                                         </span>
                                         <span className="font-mono">
@@ -1391,7 +1413,7 @@ export default function AlgoPage() {
                         </div>
                         {algo.entry_conditions!.map((c, i) => (
                           <div key={i} className="flex items-center gap-2 text-xs">
-                            <span className={`shrink-0 text-base ${c.passed ? "text-green-500" : "text-red-500"}`}>
+                            <span className={`shrink-0 text-base ${c.passed ? "text-up" : "text-down"}`}>
                               {c.passed ? "\u2713" : "\u2717"}
                             </span>
                             <span className="font-mono">
@@ -1407,7 +1429,7 @@ export default function AlgoPage() {
                         <p className="text-xs font-semibold uppercase text-muted-foreground">Exit Conditions</p>
                         {algo.exit_conditions!.map((c, i) => (
                           <div key={i} className="flex items-center gap-2 text-xs">
-                            <span className={`shrink-0 text-base ${c.passed ? "text-green-500" : "text-red-500"}`}>
+                            <span className={`shrink-0 text-base ${c.passed ? "text-up" : "text-down"}`}>
                               {c.passed ? "\u2713" : "\u2717"}
                             </span>
                             <span className="font-mono">
@@ -1448,7 +1470,7 @@ export default function AlgoPage() {
                               }
                               className={`text-[10px] shrink-0 w-14 justify-center ${
                                 sig.action === "ml_skip" ? "border-amber-500/50 text-amber-500 bg-amber-500/10" :
-                                sig.action === "ml_pass" ? "border-green-500/50 text-green-500 bg-green-500/10" :
+                                sig.action === "ml_pass" ? "border-up/50 text-up bg-up/10" :
                                 sig.action === "warn" ? "border-yellow-500/50 text-yellow-500" :
                                 sig.action === "flip" ? "bg-blue-600" : ""
                               }`}
@@ -1462,7 +1484,7 @@ export default function AlgoPage() {
                                 return (
                                   <span key={pi}>
                                     {pi > 0 && <span className="text-border mx-0.5">|</span>}
-                                    <span className={hasPass ? "text-green-500" : hasFail ? "text-red-500" : ""}>
+                                    <span className={hasPass ? "text-up" : hasFail ? "text-down" : ""}>
                                       {part}
                                     </span>
                                   </span>
@@ -1518,7 +1540,7 @@ export default function AlgoPage() {
                 <div className="flex items-center gap-3 text-sm">
                   <div className="text-right">
                     <p className="text-[10px] text-muted-foreground uppercase">Net P&L</p>
-                    <p className={`font-mono font-bold ${algoTradeStats.total_pnl >= 0 ? "text-green-500" : "text-red-500"}`}>
+                    <p className={`font-mono font-bold ${algoTradeStats.total_pnl >= 0 ? "text-up" : "text-down"}`}>
                       {algoTradeStats.total_pnl >= 0 ? "+" : ""}${algoTradeStats.total_pnl.toFixed(2)}
                     </p>
                   </div>
@@ -1540,11 +1562,11 @@ export default function AlgoPage() {
               <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-4">
                 {[
                   { label: "Trades", value: String(algoTradeStats.total_trades) },
-                  { label: "Wins", value: String(algoTradeStats.winning_trades), color: "text-green-500" },
-                  { label: "Losses", value: String(algoTradeStats.losing_trades), color: "text-red-500" },
-                  { label: "Avg P&L", value: `$${algoTradeStats.avg_pnl.toFixed(2)}`, color: algoTradeStats.avg_pnl >= 0 ? "text-green-500" : "text-red-500" },
-                  { label: "Best", value: `$${algoTradeStats.best_trade.toFixed(2)}`, color: "text-green-500" },
-                  { label: "Worst", value: `$${algoTradeStats.worst_trade.toFixed(2)}`, color: "text-red-500" },
+                  { label: "Wins", value: String(algoTradeStats.winning_trades), color: "text-up" },
+                  { label: "Losses", value: String(algoTradeStats.losing_trades), color: "text-down" },
+                  { label: "Avg P&L", value: `$${algoTradeStats.avg_pnl.toFixed(2)}`, color: algoTradeStats.avg_pnl >= 0 ? "text-up" : "text-down" },
+                  { label: "Best", value: `$${algoTradeStats.best_trade.toFixed(2)}`, color: "text-up" },
+                  { label: "Worst", value: `$${algoTradeStats.worst_trade.toFixed(2)}`, color: "text-down" },
                 ].map((s) => (
                   <div key={s.label} className="rounded-lg border p-2 text-center">
                     <p className="text-[10px] text-muted-foreground uppercase">{s.label}</p>
@@ -1573,8 +1595,8 @@ export default function AlgoPage() {
                     const dec = isBigPrice ? 2 : 5;
                     const exitReasonColors: Record<string, string> = {
                       strategy_exit: "bg-blue-500/10 text-blue-500 border-blue-500/30",
-                      stop_loss: "bg-red-500/10 text-red-500 border-red-500/30",
-                      take_profit: "bg-green-500/10 text-green-500 border-green-500/30",
+                      stop_loss: "bg-down/10 text-down border-down/30",
+                      take_profit: "bg-up/10 text-up border-up/30",
                       external: "bg-yellow-500/10 text-yellow-500 border-yellow-500/30",
                       algo_stopped: "bg-gray-500/10 text-gray-400 border-gray-500/30",
                     };
@@ -1614,14 +1636,14 @@ export default function AlgoPage() {
                           </TableCell>
                           <TableCell className="text-xs font-mono text-right">{t.bars_held ?? "---"}</TableCell>
                           <TableCell className={`text-xs font-mono text-right ${
-                            t.net_pnl == null ? "" : t.net_pnl >= 0 ? "text-green-500" : "text-red-500"
+                            t.net_pnl == null ? "" : t.net_pnl >= 0 ? "text-up" : "text-down"
                           }`}>
                             {t.net_pnl != null ? `${t.net_pnl >= 0 ? "+" : ""}$${t.net_pnl.toFixed(2)}` : "---"}
                           </TableCell>
                           <TableCell className={`text-xs font-mono text-right ${
                             t.ml_confidence == null ? "text-muted-foreground" :
-                            t.ml_confidence >= 0.7 ? "text-green-500" :
-                            t.ml_confidence >= 0.55 ? "text-yellow-500" : "text-red-500"
+                            t.ml_confidence >= 0.7 ? "text-up" :
+                            t.ml_confidence >= 0.55 ? "text-yellow-500" : "text-down"
                           }`}>
                             {t.ml_confidence != null ? `${(t.ml_confidence * 100).toFixed(0)}%` : "---"}
                           </TableCell>
@@ -1658,7 +1680,7 @@ export default function AlgoPage() {
                                     <p className="text-[10px] font-semibold uppercase text-muted-foreground mb-1">Entry Conditions</p>
                                     <div className="flex flex-wrap gap-1.5">
                                       {t.entry_conditions.map((c, i) => (
-                                        <span key={i} className={`text-[11px] font-mono px-2 py-0.5 rounded border ${c.passed ? "border-green-500/30 text-green-500" : "border-red-500/30 text-red-500"}`}>
+                                        <span key={i} className={`text-[11px] font-mono px-2 py-0.5 rounded border ${c.passed ? "border-up/30 text-up" : "border-down/30 text-down"}`}>
                                           {c.passed ? "\u2713" : "\u2717"} {c.indicator}{c.parameter && c.parameter !== "value" ? `.${c.parameter}` : ""} {c.operator} {String(c.value)}
                                         </span>
                                       ))}
@@ -1726,7 +1748,7 @@ export default function AlgoPage() {
                   <div className="flex items-center gap-3 text-sm">
                     <div className="text-right">
                       <p className="text-[10px] text-muted-foreground uppercase">Net P&L</p>
-                      <p className={`font-mono font-bold ${totalPnl >= 0 ? "text-green-500" : "text-red-500"}`}>
+                      <p className={`font-mono font-bold ${totalPnl >= 0 ? "text-up" : "text-down"}`}>
                         {totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}
                       </p>
                     </div>
@@ -1770,7 +1792,7 @@ export default function AlgoPage() {
                         </TableCell>
                         <TableCell className="text-xs font-mono text-right">{t.volume}</TableCell>
                         <TableCell className={`text-xs font-mono text-right ${
-                          t.net_pnl == null ? "" : t.net_pnl >= 0 ? "text-green-500" : "text-red-500"
+                          t.net_pnl == null ? "" : t.net_pnl >= 0 ? "text-up" : "text-down"
                         }`}>
                           {t.net_pnl != null ? `${t.net_pnl >= 0 ? "+" : ""}$${t.net_pnl.toFixed(2)}` : "---"}
                         </TableCell>
@@ -1792,8 +1814,9 @@ export default function AlgoPage() {
         </Card>
       ) : (
         <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            No trades recorded yet. Start the algo to begin trading.
+          <CardContent className="py-4 text-center text-xs text-muted-foreground">
+            No trades yet. Trades placed by the algo appear here, and are marked
+            on the chart above.
           </CardContent>
         </Card>
       )}

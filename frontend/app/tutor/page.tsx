@@ -111,10 +111,10 @@ export default function TutorPage() {
   };
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="w-full max-w-3xl space-y-4">
       {/* Page Header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">
+        <h1 className="text-lg font-semibold tracking-tight">
           AI Trading Tutor
         </h1>
         <p className="text-muted-foreground text-sm mt-1">

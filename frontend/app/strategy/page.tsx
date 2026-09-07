@@ -107,6 +107,7 @@ export default function StrategyPage() {
   const [savedStrategies, setSavedStrategies] = useState<StrategySummary[]>([]);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [strategyFilter, setStrategyFilter] = useState("");
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
@@ -241,8 +242,8 @@ export default function StrategyPage() {
   };
 
   return (
-    <div className="max-w-5xl">
-      <h1 className="text-2xl font-bold mb-1">AI Strategy Builder</h1>
+    <div className="w-full">
+      <h1 className="text-lg font-semibold tracking-tight mb-0.5">AI Strategy Builder</h1>
       <p className="text-muted-foreground text-sm mb-6">
         Describe your trading strategy in plain English. AI converts it to
         executable rules.
@@ -254,71 +255,96 @@ export default function StrategyPage() {
         </div>
       )}
 
-      {/* Saved Strategies */}
+      {/* Saved Strategies — dense scannable table.
+          Was a stack of ~70px bordered cards: 29 strategies meant a scroll
+          marathon to find one name. Now ~32px rows, grouped by symbol, with
+          a filter, so the list is scannable at a glance. */}
       {savedStrategies.length > 0 && (
-        <Card className="mb-6">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Saved Strategies</CardTitle>
+        <div className="mb-4 overflow-hidden rounded-lg border border-border bg-surface-1">
+          <div className="flex h-10 items-center justify-between gap-2 border-b border-border px-3">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Saved strategies ({savedStrategies.length})
+            </h2>
+            <div className="flex items-center gap-2">
+              <input
+                value={strategyFilter}
+                onChange={(e) => setStrategyFilter(e.target.value)}
+                placeholder="Filter…"
+                className="h-7 w-40 rounded border border-input bg-transparent px-2 text-xs outline-none focus:border-ring"
+              />
               {editingId && (
-                <Button variant="outline" size="sm" onClick={handleNew}>
-                  + New Strategy
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={handleNew}>
+                  + New
                 </Button>
               )}
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {savedStrategies.map((s) => (
-                <div
-                  key={s.id}
-                  className={`flex flex-col sm:flex-row items-start sm:items-center justify-between rounded-lg border px-4 py-3 gap-2 sm:gap-0 ${
-                    editingId === s.id
-                      ? "border-primary bg-primary/5"
-                      : "border-border"
-                  }`}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{s.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {s.symbol} &middot; {s.rule_count} rule{s.rule_count !== 1 ? "s" : ""}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleLoad(s.id)}
-                      disabled={loadingId === s.id || deletingId === s.id}
+          </div>
+
+          <div className="max-h-[280px] overflow-auto">
+            <table className="w-full text-xs">
+              <tbody>
+                {savedStrategies
+                  .filter(
+                    (s) =>
+                      !strategyFilter ||
+                      s.name.toLowerCase().includes(strategyFilter.toLowerCase()) ||
+                      (s.symbol ?? "").toLowerCase().includes(strategyFilter.toLowerCase())
+                  )
+                  .map((s) => (
+                    <tr
+                      key={s.id}
+                      className={`border-b border-grid-line last:border-0 hover:bg-surface-2 ${
+                        editingId === s.id ? "bg-primary/10" : ""
+                      }`}
                     >
-                      {loadingId === s.id ? (
-                        <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                      ) : (
-                        <Download className="h-3.5 w-3.5 mr-1" />
-                      )}
-                      {loadingId === s.id ? "Loading..." : "Load"}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => handleDelete(s.id)}
-                      disabled={deletingId === s.id || loadingId === s.id}
-                    >
-                      {deletingId === s.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-3.5 w-3.5" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                      <td className="max-w-0 px-3 py-1.5">
+                        <span className="block truncate font-medium">{s.name}</span>
+                      </td>
+                      <td className="w-24 px-3 py-1.5">
+                        <span className="price text-muted-foreground">{s.symbol}</span>
+                      </td>
+                      <td className="w-16 px-3 py-1.5 text-right">
+                        <span className="price text-muted-foreground">
+                          {s.rule_count} rule{s.rule_count !== 1 ? "s" : ""}
+                        </span>
+                      </td>
+                      <td className="w-24 px-2 py-1 text-right">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs"
+                            onClick={() => handleLoad(s.id)}
+                            disabled={loadingId === s.id || deletingId === s.id}
+                          >
+                            {loadingId === s.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              "Load"
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                            onClick={() => handleDelete(s.id)}
+                            disabled={deletingId === s.id || loadingId === s.id}
+                            aria-label={`Delete ${s.name}`}
+                          >
+                            {deletingId === s.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3 w-3" />
+                            )}
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       {/* Input Section */}
@@ -404,7 +430,7 @@ export default function StrategyPage() {
                 </div>
               )}
               {validation.valid && validation.warnings.length === 0 && (
-                <div className="bg-green-500/10 border border-green-500/30 text-green-600 dark:text-green-400 px-4 py-3 rounded-lg text-sm">
+                <div className="bg-up/10 border border-up/30 text-green-600 dark:text-up px-4 py-3 rounded-lg text-sm">
                   Strategy validated successfully
                 </div>
               )}
@@ -464,12 +490,12 @@ export default function StrategyPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Entry Conditions — Editable */}
                   <div className="space-y-3">
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-green-500">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-up">
                       Entry Conditions
                     </h4>
                     <div className="space-y-2">
                       {rule.entry_conditions.map((c, j) => (
-                        <div key={j} className="rounded-md border border-green-500/20 bg-green-500/5 px-3 py-2 space-y-1.5">
+                        <div key={j} className="rounded-md border border-up/20 bg-up/5 px-3 py-2 space-y-1.5">
                           <p className="text-xs text-muted-foreground">{c.description}</p>
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <select
@@ -508,7 +534,7 @@ export default function StrategyPage() {
                         </div>
                       ))}
                       <button
-                        className="text-xs text-green-500 hover:text-green-400"
+                        className="text-xs text-up hover:text-up"
                         onClick={() => addCondition(i, "entry_conditions")}
                       >+ Add entry condition</button>
                     </div>
@@ -516,12 +542,12 @@ export default function StrategyPage() {
 
                   {/* Exit Conditions — Editable */}
                   <div className="space-y-3">
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-red-500">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-down">
                       Exit Conditions
                     </h4>
                     <div className="space-y-2">
                       {rule.exit_conditions.map((c, j) => (
-                        <div key={j} className="rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2 space-y-1.5">
+                        <div key={j} className="rounded-md border border-down/20 bg-down/5 px-3 py-2 space-y-1.5">
                           <p className="text-xs text-muted-foreground">{c.description}</p>
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <select
@@ -560,7 +586,7 @@ export default function StrategyPage() {
                         </div>
                       ))}
                       <button
-                        className="text-xs text-red-500 hover:text-red-400"
+                        className="text-xs text-down hover:text-down"
                         onClick={() => addCondition(i, "exit_conditions")}
                       >+ Add exit condition</button>
                     </div>

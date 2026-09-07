@@ -27,7 +27,7 @@ $LOG_DIR = "$INSTALL_DIR\logs"
 $NSSM_DIR = "C:\nssm"
 $SERVICE_NAME = "massttrader"
 $REPO_URL = "https://github.com/AdityaNarayan29/masstTrader.git"
-$BRANCH = "release-2.0"
+$BRANCH = "main"          # main has the V2 agent; release-2.0 predates backend/agent/
 $PYTHON_VERSION = "3.11.9"
 $NSSM_VERSION = "2.24"
 
@@ -45,7 +45,7 @@ function Test-CommandExists {
 }
 
 # -- Step 1: Install Python --
-Write-Step "Step 1/8: Installing Python $PYTHON_VERSION"
+Write-Step "Step 1/9: Installing Python $PYTHON_VERSION"
 
 if (Test-CommandExists "python") {
     $pyVer = python --version 2>&1
@@ -69,7 +69,7 @@ if (Test-CommandExists "python") {
 }
 
 # -- Step 2: Install Git --
-Write-Step "Step 2/8: Installing Git"
+Write-Step "Step 2/9: Installing Git"
 
 if (Test-CommandExists "git") {
     $gitVer = git --version 2>&1
@@ -94,8 +94,32 @@ if (Test-CommandExists "git") {
     }
 }
 
-# -- Step 3: Clone Repository --
-Write-Step "Step 3/8: Cloning Repository"
+# -- Step 3: Visual C++ Redistributable (required by TensorFlow) --
+Write-Step "Step 3/9: Installing Visual C++ Redistributable"
+
+# TensorFlow needs msvcp140.dll / msvcp140_1.dll, which are NOT present on a bare
+# Windows Server image. Without this the backend fails at import with:
+#   ImportError: Could not find the DLL(s) 'msvcp140.dll or msvcp140_1.dll'
+$vcMarker = "$env:SystemRoot\System32\msvcp140_1.dll"
+if (Test-Path $vcMarker) {
+    Write-Host "VC++ runtime already present" -ForegroundColor Green
+} else {
+    Write-Host "Downloading VC++ Redistributable (x64)..."
+    $vcInstaller = "$env:TEMP\vc_redist.x64.exe"
+    Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $vcInstaller -UseBasicParsing
+    Write-Host "Installing (silent)..."
+    $vcProc = Start-Process -FilePath $vcInstaller -ArgumentList "/install", "/quiet", "/norestart" -Wait -PassThru
+    Remove-Item $vcInstaller -Force -ErrorAction SilentlyContinue
+    # 0 = success, 3010 = success but reboot required
+    if ($vcProc.ExitCode -eq 0 -or $vcProc.ExitCode -eq 3010) {
+        Write-Host "VC++ runtime installed" -ForegroundColor Green
+    } else {
+        Write-Host "VC++ installer returned $($vcProc.ExitCode) - TensorFlow may fail to import" -ForegroundColor Yellow
+    }
+}
+
+# -- Step 4: Clone Repository --
+Write-Step "Step 4/9: Cloning Repository"
 
 if (Test-Path "$INSTALL_DIR\.git") {
     Write-Host "Repo already cloned at $INSTALL_DIR - pulling latest..." -ForegroundColor Yellow
@@ -112,7 +136,7 @@ if (Test-Path "$INSTALL_DIR\.git") {
 }
 
 # -- Step 4: Create Virtual Environment + Install Dependencies --
-Write-Step "Step 4/8: Setting up Python venv + dependencies"
+Write-Step "Step 5/9: Setting up Python venv + dependencies"
 
 Push-Location $INSTALL_DIR
 
@@ -131,7 +155,7 @@ Write-Host "Dependencies installed" -ForegroundColor Green
 Pop-Location
 
 # -- Step 5: Create Directories --
-Write-Step "Step 5/8: Creating data directories"
+Write-Step "Step 6/9: Creating data directories"
 
 New-Item -ItemType Directory -Force -Path "$INSTALL_DIR\data" | Out-Null
 New-Item -ItemType Directory -Force -Path "$INSTALL_DIR\data\ml_models" | Out-Null
@@ -139,7 +163,7 @@ New-Item -ItemType Directory -Force -Path $LOG_DIR | Out-Null
 Write-Host "Created data/, data/ml_models/, logs/" -ForegroundColor Green
 
 # -- Step 6: Install NSSM --
-Write-Step "Step 6/8: Installing NSSM (service manager)"
+Write-Step "Step 7/9: Installing NSSM (service manager)"
 
 $nssmExe = "$NSSM_DIR\nssm.exe"
 if (Test-Path $nssmExe) {
@@ -164,7 +188,7 @@ if (Test-Path $nssmExe) {
 }
 
 # -- Step 7: Register Windows Service --
-Write-Step "Step 7/8: Registering MasstTrader as a Windows service"
+Write-Step "Step 8/9: Registering MasstTrader as a Windows service"
 
 # Remove existing service if present
 $existingService = Get-Service -Name $SERVICE_NAME -ErrorAction SilentlyContinue
@@ -196,12 +220,14 @@ $pythonExe = "$VENV_DIR\Scripts\python.exe"
 Write-Host "Service registered with auto-start and auto-restart" -ForegroundColor Green
 
 # -- Step 8: Firewall Rule --
-Write-Step "Step 8/8: Configuring firewall"
+Write-Step "Step 9/9: Configuring firewall"
 
 $fwRule = Get-NetFirewallRule -DisplayName "MasstTrader API" -ErrorAction SilentlyContinue
 if ($fwRule) {
     Write-Host "Firewall rule already exists" -ForegroundColor Green
 } else {
+    # NOTE: opens 8008 to any source. On a public VPS, scope this with
+    #   -RemoteAddress <your-ip>,<vercel-egress>  or keep API_KEY set in .env
     New-NetFirewallRule -DisplayName "MasstTrader API" -Direction Inbound -Protocol TCP -LocalPort 8008 -Action Allow | Out-Null
     Write-Host "Opened port 8008 (inbound TCP)" -ForegroundColor Green
 }

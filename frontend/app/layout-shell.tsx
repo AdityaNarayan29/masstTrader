@@ -8,6 +8,11 @@ import { Button } from "@/components/ui/button";
 export default function LayoutShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isLanding = pathname === "/";
+  // Terminal routes manage their own padding and fill the viewport: a chart
+  // that has to share space with a page gutter is a chart you squint at.
+  const isTerminal = ["/live", "/algo", "/backtest"].some((r) =>
+    pathname.startsWith(r)
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   if (isLanding) {
@@ -44,7 +49,15 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
         <Sidebar />
       </div>
 
-      <main className="flex-1 overflow-y-auto p-4 pt-16 md:p-6 md:pt-6">{children}</main>
+      <main
+        className={
+          isTerminal
+            ? "flex min-h-0 flex-1 flex-col overflow-hidden pt-14 md:pt-0"
+            : "flex flex-1 flex-col overflow-y-auto p-4 pt-16 md:p-6 md:pt-6"
+        }
+      >
+        {children}
+      </main>
     </div>
   );
 }

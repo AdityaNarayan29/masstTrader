@@ -10,6 +10,7 @@ from typing import Optional
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import json
+import secrets
 import logging
 import math
 import sys
@@ -79,14 +80,44 @@ app.add_middleware(
 # ── API-key auth (single middleware for all routes) ──
 _API_KEY = settings.API_KEY
 
+# Endpoints reachable without a key. Deliberately minimal: health is needed by
+# load balancers and uptime checks and leaks nothing sensitive.
+_AUTH_EXEMPT_PATHS = {"/api/health"}
+
+# Fail closed in live mode. An unauthenticated API exposes POST /api/mt5/trade and
+# POST /api/agent/start to anyone who can reach the port, which in the documented
+# Vercel-proxy architecture is the whole internet.
+if settings.AGENT_ENV == "live" and not _API_KEY:
+    raise RuntimeError(
+        "API_KEY must be set when AGENT_ENV=live. Refusing to start an "
+        "unauthenticated API that can place real trades. Set API_KEY in .env."
+    )
+
+if not _API_KEY:
+    logging.getLogger("masstrader.security").warning(
+        "API_KEY is not set - ALL endpoints are unauthenticated, including "
+        "trade placement. Acceptable only for local development behind a "
+        "firewall. Set API_KEY in .env before exposing this port."
+    )
+
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
-    """Reject requests without a valid API key. Skips /api/health and when API_KEY is unset."""
+    """Reject requests without a valid API key.
+
+    Skips /api/health, and is disabled entirely when API_KEY is unset (dev only -
+    startup refuses this combination when AGENT_ENV=live, see above).
+    """
+
     async def dispatch(self, request: Request, call_next):
-        if _API_KEY and request.url.path != "/api/health":
-            key = request.headers.get("x-api-key") or request.query_params.get("api_key")
-            if key != _API_KEY:
-                return JSONResponse({"detail": "Invalid or missing API key"}, status_code=401)
+        if _API_KEY and request.url.path not in _AUTH_EXEMPT_PATHS:
+            # CORS preflight carries no custom headers; rejecting it breaks browsers.
+            if request.method != "OPTIONS":
+                key = request.headers.get("x-api-key") or request.query_params.get("api_key")
+                # constant-time compare - a plain != leaks the key byte-by-byte via timing
+                if not key or not secrets.compare_digest(key, _API_KEY):
+                    return JSONResponse(
+                        {"detail": "Invalid or missing API key"}, status_code=401
+                    )
         return await call_next(request)
 
 
