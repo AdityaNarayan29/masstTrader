@@ -128,6 +128,47 @@ connector = None
 historical_data = None
 current_strategy = None
 backtest_results = None
+
+
+# ── Auto-connect MT5 on startup ──────────────────────────────────────────
+# Without this, credentials in .env were read (has_env_creds went true) but the
+# connector stayed None until something POSTed /api/mt5/connect by hand. Every
+# restart — deploy, crash, NSSM auto-restart, VM reboot — therefore came back
+# silently disconnected, which is disqualifying for an agent meant to run
+# unattended for weeks.
+@app.on_event("startup")
+def _autoconnect_mt5() -> None:
+    global connector
+
+    if not (settings.MT5_LOGIN and settings.MT5_PASSWORD and settings.MT5_SERVER):
+        logging.getLogger("masstrader.mt5").info(
+            "MT5 auto-connect skipped: credentials not set in .env"
+        )
+        return
+
+    def _connect() -> None:
+        global connector
+        log = logging.getLogger("masstrader.mt5")
+        try:
+            from backend.services.mt5_connector import MT5Connector
+
+            c = MT5Connector()
+            c.connect(
+                login=int(settings.MT5_LOGIN),
+                password=settings.MT5_PASSWORD,
+                server=settings.MT5_SERVER,
+                mt5_path=settings.MT5_PATH or None,
+            )
+            connector = c
+            log.info(f"MT5 auto-connected to {settings.MT5_SERVER}")
+        except Exception as e:  # noqa: BLE001 - must never block startup
+            log.error(f"MT5 auto-connect failed: {e}")
+
+    # In a thread: mt5.initialize() launches the terminal and can block for
+    # tens of seconds. Blocking startup would make the service look hung and
+    # fail its health check.
+    threading.Thread(target=_connect, daemon=True, name="mt5-autoconnect").start()
+
 trade_history = None
 
 
