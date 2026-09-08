@@ -27,7 +27,7 @@
 | Backtester | Working, 42 trades on demo data | `/api/backtest/run` |
 | V2 agent | Cycles run; signal generator is rule-based, not LLM | `/api/agent/cycle` |
 | Frontend | Next.js 16, 9 pages, all 200 | local `:3000` |
-| Tests | 64 passing (`pytest -q`) | indicators, risk, auth, audit, notifier |
+| Tests | 67 passing (`pytest -q`) | indicators, risk, auth, audit, notifier, autoconnect |
 
 ---
 
@@ -41,7 +41,7 @@
 | 4 | Kill switches (daily/weekly drawdown) have never been executed or tested | **DONE** | 2026-09-06 |
 | 5 | Local bug fixes are uncommitted - a VM rebuild reintroduces them | TODO | |
 | 6 | `setup.ps1` omits VC++ redistributable - TensorFlow fails on fresh deploy | **DONE** | 2026-09-06 |
-| 22 | MT5 connection does not survive a restart - credentials are not in the VM's `.env` | TODO | |
+| 22 | MT5 connection does not survive a restart - credentials are not in the VM's `.env` | **DONE** | 2026-09-08 |
 
 ### Detail
 
@@ -132,6 +132,42 @@ The agent trades as though macro were always benign.
 ## Change log
 
 <!-- Newest first. One entry per completed item. -->
+
+### 2026-09-08 - P0 #22 closed; 502 root-caused; HTTPS on the VM
+
+**The 502s were never the backend.** `vercel.json` proxied `/api/*` to
+`51.21.102.111`, a host dead before this work began. Backend healthy the whole
+time; the proxy in front of it aimed at nothing.
+
+**Why redeploying never fixed it:** the corrected `vercel.json` was on the
+`production-hardening` branch, but Vercel builds `main`, which still carried
+the stale IP. Every redeploy faithfully rebuilt the broken config. PR #1 merged,
+so `main` is correct now. I had told the user a redeploy would pick it up
+automatically - that was wrong and cost a full round trip.
+
+**Removed the failure mode rather than patching it.** The proxy only existed
+because the VM was HTTP-only (browsers block HTTPS->HTTP). Caddy now serves
+HTTPS at `51-107-189-223.sslip.io` with a real Let's Encrypt certificate
+(`sslip.io` resolves a dashed IP, so no domain needed), reverse-proxying to
+`localhost:8008`. The frontend calls the VM directly - no rewrite target left
+to go stale.
+
+**P0 #22 closed.** Credentials in `.env` were read but the connector stayed
+`None` until a human POSTed `/api/mt5/connect`. Every restart came back silently
+disconnected; this bit three times in one session. A startup hook now connects
+when all three MT5 vars are present, in a thread (`mt5.initialize()` launches
+the terminal and can block for tens of seconds, so inline would look hung and
+fail the health check) with failures caught - an unreachable broker must not
+stop the API booting. Verified: `mt5_connected: true` immediately after a deploy
+restart, no manual call. 3 tests.
+
+**Safety regression found and fixed.** Enabling API auth silently broke the
+open-position guard in `deploy/azure-deploy.sh`: it probed `/api/agent/status`
+unauthenticated, got 401, reported `OPEN=unknown`, and the check
+`grep "OPEN=[1-9]"` did not match, so it proceeded. A deploy would have
+restarted the service with positions open - exactly what the guard existed to
+prevent. It now reads `API_KEY` from the VM's `.env` and **fails closed**:
+"unknown" means "could not check", not "safe".
 
 ### 2026-09-06 - Architecture diagram rebuilt on the design system
 

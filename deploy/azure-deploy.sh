@@ -18,19 +18,35 @@ run() {
 }
 
 echo "==> Checking for open positions"
+# Reads API_KEY from the VM's own .env — the endpoint requires auth, and an
+# unauthenticated probe returns 401, which previously made this guard report
+# "unknown" and then proceed. A safety check that cannot read the state must
+# refuse, not assume the state is safe.
 OPEN=$(run '
 try {
-  $r = Invoke-WebRequest -Uri "http://localhost:8008/api/agent/status" -UseBasicParsing -TimeoutSec 20
+  $key = (Select-String -Path C:\masstTrader\.env -Pattern "^API_KEY=(.*)$").Matches.Groups[1].Value
+  $headers = @{}
+  if ($key) { $headers["x-api-key"] = $key }
+  $r = Invoke-WebRequest -Uri "http://localhost:8008/api/agent/status" -Headers $headers -UseBasicParsing -TimeoutSec 20
   $j = $r.Content | ConvertFrom-Json
   Write-Output ("OPEN=" + $j.open_trades + " RUNNING=" + $j.running)
-} catch { Write-Output "OPEN=unknown RUNNING=unknown" }
+} catch { Write-Output ("OPEN=unknown RUNNING=unknown ERR=" + $_.Exception.Message) }
 ')
 echo "    $OPEN"
 
-if echo "$OPEN" | grep -q "OPEN=[1-9]" && [ "$FORCE" != "1" ]; then
-  echo "REFUSING: the agent has open positions. A restart would abandon them."
-  echo "Close them, or re-run with FORCE=1 if you accept that."
-  exit 1
+if [ "$FORCE" != "1" ]; then
+  if echo "$OPEN" | grep -q "OPEN=[1-9]"; then
+    echo "REFUSING: the agent has open positions. A restart would abandon them."
+    echo "Close them, or re-run with FORCE=1 if you accept that."
+    exit 1
+  fi
+  # Fail closed. "unknown" is not "safe" — it means we could not check.
+  if ! echo "$OPEN" | grep -q "OPEN=0"; then
+    echo "REFUSING: could not determine open positions, so cannot confirm a"
+    echo "restart is safe. Check the service and API_KEY on the VM, or re-run"
+    echo "with FORCE=1 to deploy anyway."
+    exit 1
+  fi
 fi
 
 echo "==> Pulling $BRANCH and reinstalling dependencies"
