@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Masst Trader — From trading idea to tested strategy</title>
+<link rel="icon" href="/favicon.ico">
+<meta name="description" content="Describe a trading strategy in plain English, backtest it on real MetaTrader 5 data, get AI feedback on your trades, and automate it with a 7-step agent when you are ready.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#07080A;--bg2:#0D0F12;--card:#111419;--fg:#ECEBE6;--fg2:#B4B3AD;--mute:#7D7D78;--dim:#45464A;--line:rgba(236,235,230,.08);--up:#3DDC97;--up2:rgba(61,220,151,.12);--down:#FF5D5D;--down2:rgba(255,93,93,.12);--gold:#F2C14E;--ember:#FF4A1C;color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#07080A;--fg:#ECEBE6}}
+:root[data-theme="dark"]{--bg:#07080A;--fg:#ECEBE6}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-behavior:smooth;scroll-padding-top:calc(env(safe-area-inset-top,0px) + 80px)}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:'Geist',system-ui,-apple-system,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:41;background:var(--bg)}
+a{color:inherit;text-decoration:none}
+button{font:inherit}
+.serif{font-family:'Instrument Serif',Georgia,'Times New Roman',serif;font-weight:400}
+.mono{font-family:'Geist Mono',ui-monospace,Menlo,monospace}
+::selection{background:var(--up);color:#06150E}
+a:focus-visible,button:focus-visible{outline:2px solid var(--up);outline-offset:3px}
+.wrap{max-width:1180px;margin:0 auto;padding:0 clamp(20px,5vw,44px)}
+
+nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:40;background:rgba(7,8,10,.78);backdrop-filter:blur(14px);border-bottom:1px solid transparent;transition:border-color .3s}
+nav.scrolled{border-bottom-color:var(--line)}
+nav .wrap{display:flex;align-items:center;justify-content:space-between;height:68px;gap:16px}
+.logo{display:flex;align-items:center;gap:9px;font-family:'Instrument Serif',serif;font-size:25px}
+.logo i{width:8px;height:8px;border-radius:50%;background:var(--ember);box-shadow:0 0 12px var(--ember)}
+.logo span{font:600 13px 'Geist',sans-serif;letter-spacing:.02em;color:var(--up);margin-left:2px}
+nav ul{display:flex;gap:28px;list-style:none;margin:0;padding:0;font-size:14px;color:var(--fg2)}
+nav ul a:hover{color:var(--fg)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;padding:11px 20px;font-size:14.5px;font-weight:500;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--fg);transition:transform .2s,background .2s,border-color .2s;cursor:pointer}
+.btn:hover{transform:translateY(-1px);border-color:rgba(236,235,230,.25)}
+.btn.up{background:var(--up);border-color:var(--up);color:#05130C;font-weight:600}
+.btn.up:hover{background:#5BE5A9}
+.btn.sm{padding:8px 15px;font-size:13.5px}
+
+.hero{position:relative;padding:76px 0 40px;text-align:center}
+.hero::before{content:"";position:absolute;inset:-80px 0 auto;height:620px;background:radial-gradient(ellipse 60% 55% at 50% 20%,rgba(61,220,151,.12),transparent 70%);pointer-events:none}
+.hero > *{position:relative}
+.pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:999px;padding:6px 13px 6px 9px;font-size:13px;color:var(--fg2)}
+.pill b{width:7px;height:7px;border-radius:50%;background:var(--up);box-shadow:0 0 0 4px var(--up2)}
+.hero h1{font-size:clamp(46px,6.8vw,98px);line-height:.96;letter-spacing:-.025em;margin:22px auto 0;max-width:15ch}
+.hero h1 em{color:var(--up);font-style:italic}
+.hero p{font-size:clamp(16.5px,1.5vw,19px);line-height:1.6;color:var(--fg2);max-width:640px;margin:22px auto 0}
+.hero .row{display:flex;gap:10px;justify-content:center;margin-top:30px;flex-wrap:wrap}
+.hero .small{margin-top:16px;font-size:13px;color:var(--mute)}
+
+/* strategy lab demo */
+.lab{max-width:1000px;margin:54px auto 0;text-align:left;background:var(--bg2);border:1px solid var(--line);border-radius:22px;overflow:hidden;box-shadow:0 40px 120px rgba(0,0,0,.55),0 0 0 1px rgba(61,220,151,.05)}
+.lab .top{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);font:400 12px 'Geist Mono',monospace;color:var(--mute)}
+.lab .top i{width:10px;height:10px;border-radius:50%;background:#26282D}.lab .top i:first-child{background:var(--down)}.lab .top i:nth-child(2){background:var(--gold)}.lab .top i:nth-child(3){background:var(--up)}
+.lab .top span{margin-left:8px}.lab .top em{margin-left:auto;font-style:normal;color:var(--dim)}
+.steps3{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--line)}
+.s3{padding:12px 16px;border-right:1px solid var(--line);font-size:13px;color:var(--mute);display:flex;gap:10px;align-items:center;cursor:pointer;background:none;border-top:0;border-left:0;border-bottom:0;text-align:left}
+.s3:last-child{border-right:0}
+.s3 b{font:500 11px 'Geist Mono',monospace;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line);color:var(--mute);flex:none}
+.s3.on{color:var(--fg)}.s3.on b{background:var(--up);border-color:var(--up);color:#05130C}
+.s3.done b{border-color:var(--up);color:var(--up)}
+.labbody{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);min-height:400px}
+.labl{padding:20px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:14px}
+.lbl{font:500 10.5px 'Geist Mono',monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--mute)}
+.prompt{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;font-size:14.5px;line-height:1.6;min-height:118px;color:var(--fg)}
+.caret::after{content:"";display:inline-block;width:2px;height:16px;background:var(--up);margin-left:2px;vertical-align:-3px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.rules{display:grid;gap:7px;opacity:.25;transition:opacity .5s}
+.rules.on{opacity:1}
+.rule{display:flex;gap:10px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 11px;font-size:13px;transform:translateY(6px);opacity:0;transition:all .45s cubic-bezier(.2,.7,.1,1)}
+.rules.on .rule{transform:none;opacity:1}
+.rules.on .rule:nth-child(2){transition-delay:.12s}.rules.on .rule:nth-child(3){transition-delay:.24s}.rules.on .rule:nth-child(4){transition-delay:.36s}
+.rule em{font-style:normal;font:500 10.5px 'Geist Mono',monospace;border-radius:6px;padding:2px 7px;flex:none;margin-top:1px}
+.rule .in{background:var(--up2);color:var(--up)}.rule .out{background:var(--down2);color:var(--down)}.rule .ctx{background:rgba(242,193,78,.12);color:var(--gold)}
+.rule code{font:500 12.5px 'Geist Mono',monospace;color:var(--fg)}
+.labr{padding:20px;display:flex;flex-direction:column;gap:12px}
+.chartwrap{position:relative;flex:1;min-height:220px;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.chartwrap canvas{position:absolute;inset:0;width:100%;height:100%}
+.chartwrap .sym{position:absolute;left:12px;top:10px;font:500 11.5px 'Geist Mono',monospace;color:var(--fg2);z-index:2}
+.chartwrap .sym b{color:var(--fg)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.st{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px}
+.st b{display:block;font:500 18px 'Geist Mono',monospace}
+.st span{font-size:11px;color:var(--mute)}
+.st b.up{color:var(--up)}.st b.down{color:var(--down)}
+.sample{font-size:11.5px;color:var(--mute);display:flex;justify-content:space-between}
+.sample b{color:var(--gold);font-weight:500}
+
+section{padding:120px 0 0}
+.head{max-width:700px;margin-bottom:42px}
+.eyebrow{font:500 11.5px 'Geist Mono',monospace;letter-spacing:.2em;text-transform:uppercase;color:var(--up)}
+.head h2{font-size:clamp(38px,4.8vw,66px);line-height:1;letter-spacing:-.02em;margin:14px 0 0}
+.head h2 em{font-style:italic;color:var(--fg2)}
+.head p{font-size:17px;line-height:1.6;color:var(--fg2);margin:16px 0 0}
+
+.path{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;position:relative}
+.stage{background:var(--bg2);border:1px solid var(--line);border-radius:20px;padding:24px;position:relative;overflow:hidden}
+.stage::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:linear-gradient(90deg,var(--sc),transparent)}
+.stage:nth-child(1){--sc:#8EC5FF}.stage:nth-child(2){--sc:var(--gold)}.stage:nth-child(3){--sc:#B892FF}.stage:nth-child(4){--sc:var(--up)}
+.stage .n{font:500 11.5px 'Geist Mono',monospace;color:var(--sc);letter-spacing:.16em}
+.stage h3{margin:10px 0 0;font-size:32px;line-height:1}
+.stage p{color:var(--fg2);font-size:14.5px;line-height:1.55;margin:10px 0 14px}
+.stage ul{list-style:none;margin:0;padding:0;display:grid;gap:7px;font-size:13.5px;color:var(--fg2)}
+.stage li::before{content:"→ ";color:var(--sc)}
+
+.pipe{background:var(--bg2);border:1px solid var(--line);border-radius:24px;padding:26px;overflow:hidden}
+.rail{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;position:relative}
+.rail::before{content:"";position:absolute;left:4%;right:4%;top:22px;height:1px;background:var(--line)}
+.pulse{position:absolute;top:19px;width:7px;height:7px;border-radius:50%;background:var(--up);box-shadow:0 0 14px var(--up);left:4%;transition:left .55s cubic-bezier(.6,0,.3,1)}
+.node{position:relative;text-align:center}
+.node .dot{width:44px;height:44px;margin:0 auto;border-radius:14px;display:grid;place-items:center;background:var(--card);border:1px solid var(--line);font:500 13px 'Geist Mono',monospace;color:var(--mute);position:relative;z-index:1;transition:all .3s}
+.node.on .dot{border-color:var(--up);color:#05130C;background:var(--up);box-shadow:0 0 0 6px var(--up2)}
+.node.rk .dot{border-color:rgba(242,193,78,.5)}
+.node.rk.on .dot{background:var(--gold);border-color:var(--gold);box-shadow:0 0 0 6px rgba(242,193,78,.14)}
+.node h4{margin:12px 0 0;font-size:14px;font-weight:600}
+.node p{margin:6px 0 0;font-size:12.5px;line-height:1.45;color:var(--mute)}
+.log{margin-top:22px;background:#050607;border:1px solid var(--line);border-radius:14px;padding:12px 14px;font:400 12.5px/1.75 'Geist Mono',monospace;color:var(--fg2);height:120px;overflow:hidden}
+.log .t{color:var(--dim)}.log .g{color:var(--up)}.log .y{color:var(--gold)}.log .r{color:var(--down)}
+
+.guard{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin-top:16px}
+.gcard{background:var(--bg2);border:1px solid var(--line);border-radius:20px;padding:24px}
+.gcard h3{margin:0;font-size:26px}
+.gcard p{color:var(--fg2);font-size:14.5px;line-height:1.6;margin:10px 0 0}
+.gcard ul{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:9px;font-size:14px}
+.gcard li{display:flex;gap:10px}
+.gcard li::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--gold);margin-top:7px;flex:none}
+.gcard.g li::before{background:var(--up)}
+
+.feat{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:20px;overflow:hidden}
+.f{background:var(--bg2);padding:22px;transition:background .25s}
+.f:hover{background:var(--card)}
+.f .ic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--fc2);margin-bottom:14px}
+.f .ic svg{width:18px;height:18px;stroke:var(--fc);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.f:nth-child(4n+1){--fc:var(--up);--fc2:var(--up2)}.f:nth-child(4n+2){--fc:var(--gold);--fc2:rgba(242,193,78,.12)}.f:nth-child(4n+3){--fc:#8EC5FF;--fc2:rgba(142,197,255,.12)}.f:nth-child(4n+4){--fc:#B892FF;--fc2:rgba(184,146,255,.12)}
+.f h3{margin:0;font-size:16px;font-weight:600}
+.f p{margin:7px 0 0;color:var(--fg2);font-size:13.5px;line-height:1.55}
+
+.markets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.mk{background:var(--bg2);border:1px solid var(--line);border-radius:20px;padding:24px}
+.mk .lbl{color:var(--up)}
+.mk h3{margin:10px 0 0;font-size:26px}
+.mk p{color:var(--fg2);font-size:14.5px;line-height:1.55;margin:8px 0 0}
+.chipset{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.chipset span{font:500 12px 'Geist Mono',monospace;border:1px solid var(--line);border-radius:999px;padding:4px 10px;color:var(--fg2)}
+
+.risk{border:1px solid rgba(242,193,78,.35);background:linear-gradient(180deg,rgba(242,193,78,.06),transparent);border-radius:20px;padding:24px 26px;display:flex;gap:18px;align-items:flex-start}
+.risk .ic{flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:rgba(242,193,78,.14);color:var(--gold);font-weight:700}
+.risk h3{margin:0;font-size:18px}
+.risk p{margin:8px 0 0;color:var(--fg2);font-size:14.5px;line-height:1.65}
+
+.final{text-align:center;padding:140px 0 90px}
+.final h2{font-size:clamp(48px,7vw,104px);line-height:.95;letter-spacing:-.02em;margin:16px 0 0}
+.final h2 em{color:var(--up);font-style:italic}
+.final .row{display:flex;gap:10px;justify-content:center;margin-top:28px;flex-wrap:wrap}
+footer{border-top:1px solid var(--line);padding:26px 0 40px;font-size:12.5px;color:var(--mute)}
+footer .wrap{display:grid;gap:12px}
+footer .top{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+footer .top a:hover{color:var(--fg)}
+footer .disc{color:var(--dim);line-height:1.6;max-width:900px}
+
+.reveal{opacity:0;transform:translateY(16px);transition:opacity .9s cubic-bezier(.2,.7,.1,1),transform .9s cubic-bezier(.2,.7,.1,1)}
+.reveal.in{opacity:1;transform:none}
+
+
+.viz{height:112px;margin:14px 0 12px;border-radius:14px;background:var(--card);border:1px solid var(--line);padding:12px;position:relative;overflow:hidden}
+.cap{font-size:13.5px;color:var(--fg2)}
+.stage h3{font-size:30px}
+.chat{display:flex;flex-direction:column;gap:6px}
+.bub{font-size:12px;line-height:1.35;border-radius:12px;padding:7px 10px;max-width:88%}
+.bub.q{align-self:flex-end;background:rgba(142,197,255,.15);color:#CFE4FF}
+.bub.a{background:#1A1E25;color:var(--fg2)}
+.build{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.build .say{font-size:13px;color:var(--fg);background:#1A1E25;border-radius:10px;padding:6px 10px}
+.build .arrow{color:var(--gold);font-size:14px}
+.chipz{display:flex;gap:6px}.chipz span{font:500 11px 'Geist Mono',monospace;border-radius:6px;padding:3px 8px}
+.chipz .in{background:var(--up2);color:var(--up)}.chipz .ctx{background:rgba(242,193,78,.12);color:var(--gold)}
+.test svg{position:absolute;left:0;right:0;bottom:0;width:100%;height:70%}
+.score{position:relative;display:flex;align-items:baseline;gap:4px}.score b{font:500 22px 'Geist Mono',monospace;color:#B892FF}.score span{font-size:11px;color:var(--mute)}
+.auto{display:flex;flex-direction:column;justify-content:center;gap:10px}
+.tog{width:44px;height:24px;border-radius:999px;background:var(--up);position:relative}.tog i{position:absolute;right:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#05130C}
+.auto .lbl2{position:absolute;left:66px;top:18px;font-size:12.5px;color:var(--up)}
+.dots{display:flex;gap:6px}.dots i{width:16px;height:16px;border-radius:5px;background:#1A1E25;border:1px solid var(--line);animation:dp 2.8s infinite}
+.dots i:nth-child(2){animation-delay:.4s}.dots i:nth-child(3){animation-delay:.8s}.dots i:nth-child(4){animation-delay:1.2s}.dots i:nth-child(5){animation-delay:1.6s}.dots i:nth-child(6){animation-delay:2s}.dots i:nth-child(7){animation-delay:2.4s}
+@keyframes dp{0%,10%{background:var(--up);border-color:var(--up)}25%,100%{background:#1A1E25;border-color:var(--line)}}
+.meter{margin-top:14px}.mrow{display:flex;justify-content:space-between;font-size:13px;color:var(--fg2);margin-bottom:6px}.mrow b{font:500 12.5px 'Geist Mono',monospace;color:var(--fg)}
+.bar{position:relative;height:8px;border-radius:999px;background:#1A1E25}.bar i{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:linear-gradient(90deg,var(--up),var(--gold))}
+.bar em{position:absolute;top:-4px;width:2px;height:16px;background:var(--down);margin-left:-2px}
+.slots{display:flex;gap:6px}.slots i{flex:1;height:8px;border-radius:999px;background:#1A1E25}.slots i.on{background:var(--up)}
+.note2{margin-top:16px;font-size:13px;color:var(--mute)}
+.ctrl{margin-top:14px}
+.kill{display:flex;align-items:center;gap:10px;width:100%;border:1px solid rgba(61,220,151,.35);background:var(--up2);color:var(--up);border-radius:14px;padding:12px 14px;cursor:pointer;font-size:14px;font-weight:600;transition:all .25s}
+.kill i{width:10px;height:10px;border-radius:50%;background:currentColor;box-shadow:0 0 0 4px rgba(61,220,151,.2)}
+.kill.off{border-color:rgba(255,93,93,.4);background:var(--down2);color:var(--down)}.kill.off i{box-shadow:0 0 0 4px rgba(255,93,93,.2)}
+.alert{display:flex;gap:10px;align-items:center;margin-top:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;font-size:12.5px;color:var(--fg2)}
+.alert b{display:block;color:var(--fg);font-size:12px}.alert .ti{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#229ED9;color:#fff;font-size:14px;flex:none}
+.f p{margin:4px 0 0;font-size:13px;color:var(--mute)}
+.stack{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:20px;overflow:hidden}
+.sk{background:var(--bg2);padding:24px;display:flex;flex-direction:column;gap:6px}
+.sk .lbl{color:var(--up)}.sk b{font-family:'Instrument Serif',serif;font-weight:400;font-size:30px;line-height:1.05}.sk b small{font:500 11px 'Geist Mono',monospace;color:var(--up);border:1px solid rgba(61,220,151,.4);border-radius:999px;padding:2px 7px;vertical-align:6px;margin-left:4px}
+.sk em{font-style:normal;font-size:13px;color:var(--mute)}
+@media (max-width:980px){
+  .stack{grid-template-columns:1fr}
+  nav ul{display:none}
+  .labbody{grid-template-columns:1fr}.labl{border-right:0;border-bottom:1px solid var(--line)}
+  .path,.guard,.markets{grid-template-columns:1fr}
+  .feat{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rail{grid-template-columns:1fr;gap:14px}.rail::before,.pulse{display:none}
+  .node{text-align:left;display:grid;grid-template-columns:44px 1fr;gap:4px 14px;align-items:start}
+  .node .dot{grid-row:span 2;margin:0}.node h4{margin:2px 0 0}.node p{margin:0}
+  section{padding-top:90px}
+}
+@media (max-width:560px){
+  .steps3 .s3 span{display:none}.steps3 .s3{justify-content:center}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .feat{grid-template-columns:1fr}
+  .risk{flex-direction:column}
+}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}.rule{opacity:1;transform:none}html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<nav id="nav"><div class="wrap">
+  <a class="logo" href="#top"><i></i>masst <span>Trader</span></a>
+  <ul><li><a href="#path">How it works</a></li><li><a href="#agent">The agent</a></li><li><a href="#features">Features</a></li><li><a href="#risk">Risk</a></li></ul>
+  <a class="btn up sm" href="/connection">Try the demo</a>
+</div></nav>
+
+<main id="top">
+<header class="wrap hero">
+  <span class="pill reveal"><b></b>Strategy lab · MetaTrader 5 · AI coaching</span>
+  <h1 class="serif reveal">From trading idea to <em>tested strategy.</em></h1>
+  <p class="reveal">Describe it in plain English. Backtest it on real MT5 data. Automate it when you’re ready.</p>
+  <div class="row reveal"><a class="btn up" href="/connection">Try the demo, no setup →</a><a class="btn" href="/strategy">Build a strategy</a></div>
+  <div class="small reveal">Demo runs on sample data · no account needed</div>
+
+  <div class="lab reveal" id="lab" aria-label="Strategy lab demo">
+    <div class="top"><i></i><i></i><i></i><span>masst trader — strategy lab</span><em>demo</em></div>
+    <div class="steps3">
+      <button class="s3 on" type="button" data-s="0"><b>1</b><span>Describe in plain English</span></button>
+      <button class="s3" type="button" data-s="1"><b>2</b><span>AI turns it into rules</span></button>
+      <button class="s3" type="button" data-s="2"><b>3</b><span>Backtest on MT5 history</span></button>
+    </div>
+    <div class="labbody">
+      <div class="labl">
+        <div class="lbl">Your strategy</div>
+        <div class="prompt" id="prompt"><span id="ptext"></span><span class="caret"></span></div>
+        <div class="lbl">Executable rules</div>
+        <div class="rules" id="rules">
+          <div class="rule"><em class="ctx">MARKET</em><code>EURUSD · H1</code></div>
+          <div class="rule"><em class="in">ENTRY</em><code>RSI(14) &lt; 30 AND MACD crosses above signal</code></div>
+          <div class="rule"><em class="out">STOP</em><code>1.5 × ATR(14) below entry</code></div>
+          <div class="rule"><em class="in">TARGET</em><code>2 × ATR(14) above entry</code></div>
+        </div>
+      </div>
+      <div class="labr">
+        <div class="chartwrap"><div class="sym"><b>EURUSD</b> · H1 · sample data</div><canvas id="chart"></canvas></div>
+        <div class="stats">
+          <div class="st"><b id="sTrades">—</b><span>trades</span></div>
+          <div class="st"><b id="sWin">—</b><span>win rate</span></div>
+          <div class="st"><b id="sNet" class="up">—</b><span>net result</span></div>
+          <div class="st"><b id="sDD" class="down">—</b><span>max drawdown</span></div>
+        </div>
+        <div class="sample"><span><b>Illustrative backtest on sample data.</b> Not a prediction of future results.</span></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section id="path"><div class="wrap">
+  <div class="head reveal"><div class="eyebrow">How it works</div><h2 class="serif">Learn, build, test, <em>automate.</em></h2></div>
+  <div class="path reveal">
+    <div class="stage"><div class="n">01 · LEARN</div><h3 class="serif">Understand</h3>
+      <div class="viz chat"><div class="bub q">What is RSI divergence?</div><div class="bub a">When price makes a new low but RSI doesn’t…</div></div>
+      <div class="cap">AI tutor at your level</div></div>
+    <div class="stage"><div class="n">02 · BUILD</div><h3 class="serif">Describe</h3>
+      <div class="viz build"><div class="say">“Buy when RSI &lt; 30”</div><div class="arrow">↓</div><div class="chipz"><span class="in">ENTRY</span><span class="ctx">RSI(14) &lt; 30</span></div></div>
+      <div class="cap">Plain English → rules</div></div>
+    <div class="stage"><div class="n">03 · TEST</div><h3 class="serif">Prove it</h3>
+      <div class="viz test"><svg viewBox="0 0 160 60" preserveAspectRatio="none"><polyline points="0,50 20,44 35,47 55,36 70,39 90,28 105,31 125,20 140,22 160,10" fill="none" stroke="#B892FF" stroke-width="2"/><polyline points="0,50 20,44 35,47 55,36 70,39 90,28 105,31 125,20 140,22 160,10 160,60 0,60" fill="rgba(184,146,255,.12)" stroke="none"/></svg><div class="score"><b>82</b><span>/100 alignment</span></div></div>
+      <div class="cap">Backtests + trade scoring</div></div>
+    <div class="stage"><div class="n">04 · AUTOMATE</div><h3 class="serif">Run it</h3>
+      <div class="viz auto"><div class="tog"><i></i></div><span class="lbl2">Agent running</span><div class="dots"><i></i><i></i><i></i><i></i><i class="g"></i><i></i><i></i></div></div>
+      <div class="cap">7-step agent, hard limits</div></div>
+  </div>
+</div></section>
+
+<section id="agent"><div class="wrap">
+  <div class="head reveal"><div class="eyebrow">The agent</div><h2 class="serif">Seven steps, <em>every cycle.</em></h2></div>
+  <div class="pipe reveal">
+    <div class="rail" id="rail">
+      <div class="pulse" id="pulse"></div>
+      <div class="node"><div class="dot">1</div><h4>Scan</h4><p>Watchlist</p></div>
+      <div class="node"><div class="dot">2</div><h4>Context</h4><p>Macro + sentiment</p></div>
+      <div class="node"><div class="dot">3</div><h4>Regime</h4><p>Trend or range</p></div>
+      <div class="node"><div class="dot">4</div><h4>Signal</h4><p>Your rules</p></div>
+      <div class="node rk"><div class="dot">5</div><h4>Risk</h4><p>Hard limits</p></div>
+      <div class="node"><div class="dot">6</div><h4>Execute</h4><p>Orders on MT5</p></div>
+      <div class="node"><div class="dot">7</div><h4>Monitor</h4><p>Stops + exits</p></div>
+    </div>
+    <div class="log" id="log" aria-live="off"></div>
+  </div>
+  <div class="guard reveal">
+    <div class="gcard"><h3 class="serif">Hard limits</h3>
+      <div class="meter"><div class="mrow"><span>Daily drawdown</span><b>1.2% / 3%</b></div><div class="bar"><i style="width:40%"></i><em style="left:100%"></em></div></div>
+      <div class="meter"><div class="mrow"><span>Open positions</span><b>2 / 3</b></div><div class="slots"><i class="on"></i><i class="on"></i><i></i></div></div>
+      <div class="meter"><div class="mrow"><span>Risk per trade</span><b>0.8%</b></div><div class="bar"><i style="width:27%"></i></div></div>
+      <div class="note2">Fixed rules. AI can’t override them.</div></div>
+    <div class="gcard g"><h3 class="serif">You’re in control</h3>
+      <div class="ctrl"><button type="button" class="kill" id="kill"><i></i><span>Agent running</span></button></div>
+      <div class="alert"><div class="ti">✈</div><div><b>Telegram · Masst Trader</b>XAUUSD long · 0.10 lots · demo fill</div></div>
+      <div class="note2">Start, stop or halt any time. Every decision is logged.</div></div>
+  </div>
+</div></section>
+
+<section id="features"><div class="wrap">
+  <div class="head reveal"><div class="eyebrow">Features</div><h2 class="serif">Everything in <em>one platform.</em></h2></div>
+  <div class="feat reveal">
+    <div class="f"><div class="ic"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></div><h3>MT5 connection</h3><p>Any broker account</p></div>
+    <div class="f"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-9"/><path d="M14 7h6v6"/></svg></div><h3>Live dashboard</h3><p>Streaming charts + P/L</p></div>
+    <div class="f"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/><path d="M17 15l2 2 3-4"/></svg></div><h3>Strategy builder</h3><p>Plain English → rules</p></div>
+    <div class="f"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l3-4 3 2 5-7"/></svg></div><h3>Backtester</h3><p>Real MT5 history</p></div>
+    <div class="f"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11l2 2 4-4"/></svg></div><h3>Trade analyser</h3><p>AI score + coaching</p></div>
+    <div class="f"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3M7 12l2-2 2 2 4-4"/></svg></div><h3>Algo trading</h3><p>Rules run for you</p></div>
+    <div class="f"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M8 6h8M7 8l4 8M17 8l-4 8"/></svg></div><h3>ML models</h3><p>XGBoost + LSTM</p></div>
+    <div class="f"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 19.5V5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2"/><path d="M8 7h6M8 11h4"/></svg></div><h3>AI tutor</h3><p>Lessons + chat</p></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="stack reveal">
+    <div class="sk"><span class="lbl">Trade on</span><b>MetaTrader 5</b><em>Forex · Metals · Indices · Crypto CFDs</em></div>
+    <div class="sk"><span class="lbl">Crypto data</span><b>Binance · Bybit</b><em>data only, no trading</em></div>
+    <div class="sk"><span class="lbl">AI</span><b>Groq <small>free</small></b><em>or Gemini · Claude · OpenAI</em></div>
+  </div>
+</div></section>
+
+<section id="risk"><div class="wrap">
+  <div class="risk reveal"><div class="ic">!</div><div><h3>Trading involves risk</h3><p>Leveraged trading carries a high risk of loss. Backtests don’t guarantee future results. Masst Trader is a tool, not financial advice. Start in demo mode.</p></div></div>
+</div></section>
+
+<section class="final"><div class="wrap reveal">
+  <div class="eyebrow">Masst Trader</div>
+  <h2 class="serif">Test the idea<br><em>before you trust it.</em></h2>
+  <div class="row"><a class="btn up" href="/connection">Try the demo →</a><a class="btn" href="/tutor">Start learning</a></div>
+</div></section>
+</main>
+<footer><div class="wrap">
+  <div class="top"><span>© 2026 Masst Trader · part of <a href="https://www.masst.dev">Masst</a></span><span><a href="/strategy">Strategy</a> · <a href="/backtest">Backtest</a> · <a href="/tutor">Tutor</a></span></div>
+  <div class="disc">Risk warning: trading leveraged products carries a high risk of loss. Backtests and demo results are illustrative and do not guarantee future performance. Nothing on this site is financial advice.</div>
+</div></footer>
+
+<script>
+(() => {
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const nav=document.getElementById('nav'); addEventListener('scroll',()=>nav.classList.toggle('scrolled',scrollY>8),{passive:true});
+const io=new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } }),{threshold:.12});
+document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+const sleep=ms=>new Promise(r=>setTimeout(r,reduce?0:ms));
+
+// ---------- deterministic sample market for the demo chart
+let seed=11; const rnd=()=>{ seed=(seed*16807)%2147483647; return seed/2147483647; };
+const N=90, C=[]; let p=1.0850;
+for(let i=0;i<N;i++){ const drift=Math.sin(i/9)*0.0006+(i>55?0.00025:-0.00005); const o=p, c=o+drift+(rnd()-.5)*0.0016; const h=Math.max(o,c)+rnd()*0.0008, l=Math.min(o,c)-rnd()*0.0008; C.push([o,h,l,c]); p=c; }
+const TRADES=[[14,24,1],[29,37,0],[44,58,1],[63,71,0],[76,86,1]]; // [entry, exit, won]
+
+const cv=document.getElementById('chart'), g=cv.getContext('2d');
+let shown=0, eqShown=0;
+function draw(){ const dpr=Math.min(devicePixelRatio||1,2), w=cv.clientWidth, h=cv.clientHeight; if(cv.width!==Math.round(w*dpr)){ cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr); }
+  g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,w,h);
+  const top=30, eqH=h*.24, chH=h-top-eqH-18; let lo=1e9,hi=-1e9; C.forEach(k=>{lo=Math.min(lo,k[2]);hi=Math.max(hi,k[1]);});
+  const X=i=>10+i*(w-20)/N, Y=v=>top+(hi-v)/(hi-lo)*chH, bw=Math.max(2,(w-20)/N*.62);
+  g.strokeStyle='rgba(236,235,230,.05)'; g.lineWidth=1; for(let k=0;k<4;k++){ const y=top+k*chH/3; g.beginPath(); g.moveTo(0,y); g.lineTo(w,y); g.stroke(); }
+  for(let i=0;i<Math.min(shown,N);i++){ const [o,hh,l,c]=C[i], up=c>=o; g.strokeStyle=g.fillStyle=up?'#3DDC97':'#FF5D5D'; g.beginPath(); g.moveTo(X(i)+bw/2,Y(hh)); g.lineTo(X(i)+bw/2,Y(l)); g.stroke(); g.fillRect(X(i),Y(Math.max(o,c)),bw,Math.max(1,Math.abs(Y(o)-Y(c)))); }
+  TRADES.forEach(([a,b,won])=>{ if(shown>a){ const y=Y(C[a][2])+10; g.fillStyle='#3DDC97'; g.beginPath(); g.moveTo(X(a)+bw/2,y-6); g.lineTo(X(a)+bw/2-5,y+3); g.lineTo(X(a)+bw/2+5,y+3); g.fill(); }
+    if(shown>b){ const y=Y(C[b][1])-10; g.fillStyle=won?'#3DDC97':'#FF5D5D'; g.beginPath(); g.arc(X(b)+bw/2,y,3.5,0,7); g.fill(); g.strokeStyle='rgba(236,235,230,.18)'; g.setLineDash([3,4]); g.beginPath(); g.moveTo(X(a)+bw/2,Y(C[a][3])); g.lineTo(X(b)+bw/2,Y(C[b][3])); g.stroke(); g.setLineDash([]); } });
+  // equity curve
+  const ey=h-eqH-6; g.fillStyle='rgba(236,235,230,.35)'; g.font="10px 'Geist Mono', monospace"; g.fillText('equity',12,ey+10);
+  let eq=0; const pts=[[0,0]]; TRADES.forEach(([a,b,won])=>{ if(shown>b){ eq+=won?2:-1.5; pts.push([b,eq]); } }); pts.push([Math.min(shown,N-1),eq]);
+  const emin=-2,emax=7, EY=v=>ey+eqH-(v-emin)/(emax-emin)*eqH;
+  g.strokeStyle='#3DDC97'; g.lineWidth=1.6; g.beginPath(); pts.forEach(([i,v],k)=>{ const x=X(i); k?g.lineTo(x,EY(v)):g.moveTo(x,EY(v)); }); g.stroke();
+  g.lineTo(X(pts[pts.length-1][0]),ey+eqH); g.lineTo(X(0),ey+eqH); g.closePath(); g.fillStyle='rgba(61,220,151,.08)'; g.fill(); }
+addEventListener('resize',draw);
+
+const steps=[...document.querySelectorAll('.s3')], ptext=document.getElementById('ptext'), rules=document.getElementById('rules');
+const PROMPT='Buy EURUSD on the 1-hour chart when RSI(14) drops below 30 and MACD crosses above its signal line. Stop loss at 1.5× ATR, take profit at 2× ATR.';
+const S={trades:document.getElementById('sTrades'),win:document.getElementById('sWin'),net:document.getElementById('sNet'),dd:document.getElementById('sDD')};
+function setStep(i){ steps.forEach((s,k)=>{ s.classList.toggle('on',k===i); s.classList.toggle('done',k<i); }); }
+let run=0;
+async function play(){ const id=++run; ptext.textContent=''; rules.classList.remove('on'); shown=0; draw(); Object.values(S).forEach(e=>e.textContent='—');
+  setStep(0); for(let i=0;i<=PROMPT.length;i++){ if(id!==run) return; ptext.textContent=PROMPT.slice(0,i); await sleep(22); }
+  await sleep(500); if(id!==run) return; setStep(1); rules.classList.add('on'); await sleep(1500);
+  if(id!==run) return; setStep(2); for(let i=0;i<=N;i++){ if(id!==run) return; shown=i; draw(); await sleep(26); }
+  S.trades.textContent='5'; S.win.textContent='60%'; S.net.textContent='+3.0R'; S.dd.textContent='−1.5R';
+  await sleep(6500); if(id===run) play(); }
+steps.forEach((s,i)=>s.addEventListener('click',()=>{ run++; if(i===0) play(); if(i>=1){ ptext.textContent=PROMPT; rules.classList.add('on'); setStep(i); } if(i===2){ shown=N; draw(); S.trades.textContent='5'; S.win.textContent='60%'; S.net.textContent='+3.0R'; S.dd.textContent='−1.5R'; } if(i===1){ shown=0; draw(); } }));
+const lio=new IntersectionObserver(es=>{ if(es[0].isIntersecting){ play(); lio.disconnect(); } },{threshold:.3}); lio.observe(document.getElementById('lab'));
+draw();
+
+// ---------- kill switch demo
+const kill=document.getElementById('kill'); let agentOn=true; kill.addEventListener('click',()=>{ agentOn=!agentOn; kill.classList.toggle('off',!agentOn); kill.querySelector('span').textContent=agentOn?'Agent running':'Agent halted'; });
+
+// ---------- agent pipeline: pulse + log
+const nodes=[...document.querySelectorAll('.node')], pulse=document.getElementById('pulse'), log=document.getElementById('log');
+const LINES=[['scan','<span class="g">✓</span> watchlist: XAUUSD, EURUSD · 2 cleared'],['context','macro + gold + sentiment loaded'],['regime','EURUSD: ranging · XAUUSD: trending'],['signal','EURUSD: no setup · XAUUSD: <span class="g">long signal</span>'],['risk','<span class="y">risk 0.8% · 0.10 lots · within daily limit</span>'],['execute','<span class="g">order placed</span> · demo fill'],['monitor','trailing stop moved · 1 position open']];
+let ni=0; function stepNode(){ nodes.forEach((n,k)=>n.classList.toggle('on',k===ni)); const r=nodes[ni].getBoundingClientRect(), rr=document.getElementById('rail').getBoundingClientRect(); pulse.style.left=(r.left-rr.left+r.width/2-3)+'px';
+  const d=document.createElement('div'); const now=new Date(); const ts=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0')+':'+String(now.getSeconds()).padStart(2,'0');
+  d.innerHTML=`<span class="t">${ts}</span>  ${LINES[ni][0].padEnd(8,' ').replace(/ /g,'&nbsp;')} ${LINES[ni][1]}`; log.appendChild(d); while(log.children.length>6) log.firstChild.remove(); ni=(ni+1)%7; if(ni===0){ const sp=document.createElement('div'); sp.innerHTML='<span class="t">— cycle complete · next in 5 min —</span>'; log.appendChild(sp); while(log.children.length>6) log.firstChild.remove(); } }
+let pv=false; new IntersectionObserver(es=>pv=es[0].isIntersecting).observe(document.getElementById('agent'));
+setInterval(()=>{ if(pv&&!document.hidden&&!reduce&&agentOn) stepNode(); },1100); stepNode();
+})();
+</script>
+</body>
+</html>
