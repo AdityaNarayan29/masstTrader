@@ -359,6 +359,9 @@ const io=new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting){ e.ta
 document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
 const sleep=ms=>new Promise(r=>setTimeout(r,reduce?0:ms));
 
+// ---------- 'Try the demo' switches the app into demo mode before opening it
+document.querySelectorAll('a[href="/connection"]').forEach(link=>link.addEventListener('click',()=>{ try{ localStorage.setItem('masst_demo_mode','true'); }catch(e){} }));
+
 // ---------- deterministic sample market for the demo chart
 let seed=11; const rnd=()=>{ seed=(seed*16807)%2147483647; return seed/2147483647; };
 const N=90, C=[]; let p=1.0850;
